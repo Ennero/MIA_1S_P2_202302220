@@ -49,7 +49,7 @@ func ParseRmusr(tokens []string) (string, error) {
 }
 
 func commandRmusr(rmusr *RMUSR) error {
-	// Verificar Permisos (Root)
+	// Verificar Permisos 
 	if !stores.Auth.IsAuthenticated() {
 		return errors.New("comando rmusr requiere inicio de sesión")
 	}
@@ -58,13 +58,14 @@ func commandRmusr(rmusr *RMUSR) error {
 		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar rmusr (usuario actual: %s)", currentUser)
 	}
 
-	// No permitir eliminar el usuario root
+	// No permitir modificar el usuario root
 	if strings.EqualFold(rmusr.user, "root") {
-		return errors.New("error: el usuario 'root' no puede ser eliminado")
+		return errors.New("error: el usuario 'root' no puede ser modificado por rmusr")
 	}
-	// No permitir eliminar al usuario actualmente logueado
-	if strings.EqualFold(rmusr.user, currentUser) && currentUser != "root" {
-		return fmt.Errorf("error: no puedes eliminar al usuario '%s' mientras está logueado", currentUser)
+
+	// No permitir que root se modifique a sí mismo
+	if strings.EqualFold(rmusr.user, currentUser) && currentUser == "root" {
+		return errors.New("error: el usuario 'root' no puede modificarse a sí mismo con rmusr")
 	}
 
 	// Obtener Partición y Superbloque
@@ -74,6 +75,9 @@ func commandRmusr(rmusr *RMUSR) error {
 	}
 	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
 		return errors.New("tamaño de inodo o bloque inválido en superbloque")
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return fmt.Errorf("magia del superbloque inválida en partición '%s'", partitionID)
 	}
 
 	// Encontrar y Leer Inodo/Contenido de /users.txt
@@ -92,45 +96,72 @@ func commandRmusr(rmusr *RMUSR) error {
 		return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
 	}
 
-	// Parsear Contenido y Validar Usuario a Eliminar
-	fmt.Printf("Buscando usuario '%s' para eliminar...\n", rmusr.user)
+	// Parsear Contenido y Modificar Usuario
+	fmt.Printf("Buscando usuario '%s' para modificar UID a 0...\n", rmusr.user)
 	lines := strings.Split(oldContent, "\n")
 	newLines := []string{}
 	foundUser := false
+	userExistsWithUIDZero := false
 
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 		if trimmedLine == "" {
-			continue
+			continue // Ignorar líneas vacías
 		}
 
 		fields := strings.Split(trimmedLine, ",")
+		// Validar formato básico de la línea
+		if len(fields) < 4 {
+			fmt.Printf("Advertencia: Línea con formato incorrecto en users.txt: '%s'. Se conservará.\n", line)
+			newLines = append(newLines, line)
+			continue
+		}
+
+		// Limpiar espacios de cada campo
 		for i := range fields {
 			fields[i] = strings.TrimSpace(fields[i])
 		}
 
-		if len(fields) >= 4 && fields[1] == "U" && strings.EqualFold(fields[3], rmusr.user) { // <-- Cambiado fields[2] a fields[3]
-			fmt.Printf("Usuario '%s' encontrado (línea: '%s'). Marcado para eliminación.\n", rmusr.user, line)
+		isUserLine := fields[1] == "U"                           // Verificar tipo 'U'
+		isTargetUser := strings.EqualFold(fields[3], rmusr.user)
+		currentUID := fields[0]
+
+		// Verificar si el usuario ya tiene UID 0
+		if isUserLine && isTargetUser && currentUID == "0" {
+			fmt.Printf("Información: El usuario '%s' ya tiene UID 0.\n", rmusr.user)
+			userExistsWithUIDZero = true // Marcar que ya existe con UID 0
+			newLines = append(newLines, line)
+			foundUser = true // Marcar como encontrado también
+			continue         // Pasar a la siguiente línea
+		}
+
+		if isUserLine && isTargetUser {
+			fmt.Printf("Usuario '%s' encontrado (UID: %s, Línea: '%s'). Modificando UID a 0.\n", rmusr.user, currentUID, line)
+			fields[0] = "0"                           // Cambiar UID a "0"
+			modifiedLine := strings.Join(fields, ",") // Reconstruir la línea
+			newLines = append(newLines, modifiedLine) // Añadir la LÍNEA MODIFICADA
 			foundUser = true
 		} else {
-			// Conservar la línea original
 			newLines = append(newLines, line)
 		}
-	}
-	// Verificar si se encontró el usuario
+	} 
+
 	if !foundUser {
-		return fmt.Errorf("error: el usuario '%s' no fue encontrado", rmusr.user)
+		return fmt.Errorf("error: el usuario '%s' no fue encontrado en /users.txt", rmusr.user)
+	}
+	if userExistsWithUIDZero {
+		fmt.Println("No se realizaron cambios en el archivo ya que el usuario ya tenía UID 0.")
+		return fmt.Errorf("error: el usuario '%s' ya tiene UID 0", rmusr.user)
 	}
 
-	// Preparar Nuevo Contenido Final
 	newContent := strings.Join(newLines, "\n")
+	// Asegurar que termine con newline si no está vacío
 	if newContent != "" && !strings.HasSuffix(newContent, "\n") {
 		newContent += "\n"
 	}
 	newSize := int32(len(newContent))
 	fmt.Printf("Nuevo contenido de users.txt preparado (%d bytes).\n", newSize)
 
-	// Liberar Bloques Antiguos de users.txt
 	fmt.Println("Liberando bloques antiguos de /users.txt...")
 	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
 	if errFree != nil {
@@ -140,11 +171,11 @@ func commandRmusr(rmusr *RMUSR) error {
 		fmt.Println("Bloques antiguos liberados.")
 	}
 
-	// Asignar Nuevos Bloques para el nuevo contenido
 	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
 	var newAllocatedBlockIndices [15]int32
 	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
 	if err != nil {
+		// Falló la reasignación
 		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
 	}
 
@@ -152,21 +183,25 @@ func commandRmusr(rmusr *RMUSR) error {
 	fmt.Println("Actualizando inodo /users.txt...")
 	usersInode.I_size = newSize
 	usersInode.I_mtime = float32(time.Now().Unix())
-	usersInode.I_atime = usersInode.I_mtime
+	usersInode.I_atime = usersInode.I_mtime // Actualizar también atime
+	// Resetear los punteros antiguos y asignar los nuevos
+	for k := range usersInode.I_block { usersInode.I_block[k] = -1 }
 	usersInode.I_block = newAllocatedBlockIndices
 
 	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
 	err = usersInode.Serialize(partitionPath, usersInodeOffset)
 	if err != nil {
+		// Fallo crítico, el inodo no se actualizó
 		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
 	}
 
-	// Serializar Superbloque
+	// Serializar Superbloque 
 	fmt.Println("Serializando SuperBlock después de RMUSR...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
-		return fmt.Errorf("error al serializar el superbloque después de rmusr: %w", err)
+		return fmt.Errorf("ADVERTENCIA: error al serializar el superbloque después de rmusr, los contadores podrían estar desactualizados (%w)", err)
 	}
 
-	return nil // Éxito
+	fmt.Println("Operación RMUSR (modificar UID a 0) completada.")
+	return nil 
 }

@@ -12,7 +12,7 @@ import (
 )
 
 type RMGRP struct {
-	name string 
+	name string
 }
 
 func ParseRmgrp(tokens []string) (string, error) {
@@ -29,7 +29,7 @@ func ParseRmgrp(tokens []string) (string, error) {
 		return "", fmt.Errorf("parámetro inválido o formato incorrecto: %s. Uso: rmgrp -name=<nombre>", tokens[0])
 	}
 
-	value := match[1] 
+	value := match[1]
 	if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
 		value = strings.Trim(value, "\"")
 	}
@@ -42,13 +42,13 @@ func ParseRmgrp(tokens []string) (string, error) {
 
 	err := commandRmgrp(cmd)
 	if err != nil {
-		return "", err 
+		return "", err
 	}
 
 	return fmt.Sprintf("RMGRP: Grupo '%s' eliminado correctamente.", cmd.name), nil
 }
 
-// commandRmgrp contiene la lógica principal para eliminar el grupo
+// commandRmgrp (Modificada la lógica de procesamiento de líneas)
 func commandRmgrp(rmgrp *RMGRP) error {
 	// Verificar Permisos
 	if !stores.Auth.IsAuthenticated() {
@@ -59,6 +59,11 @@ func commandRmgrp(rmgrp *RMGRP) error {
 		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar rmgrp (usuario actual: %s)", currentUser)
 	}
 
+	// No permitir modificar el grupo "root"
+	if strings.EqualFold(rmgrp.name, "root") {
+		return errors.New("error: el grupo 'root' no puede ser modificado por rmgrp")
+	}
+
 	// Obtener Partición y Superbloque
 	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
 	if err != nil {
@@ -66,6 +71,9 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	}
 	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
 		return errors.New("tamaño de inodo o bloque inválido en superbloque")
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return fmt.Errorf("magia del superbloque inválida en partición '%s'", partitionID)
 	}
 
 	// Encontrar y Leer Inodo/Contenido de /users.txt
@@ -80,20 +88,16 @@ func commandRmgrp(rmgrp *RMGRP) error {
 
 	fmt.Println("Leyendo contenido actual de /users.txt...")
 	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
-	// Retorna error si falla la lectura de bloques.
 	if errRead != nil {
 		return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
 	}
 
-	// Parsear Contenido y Validar Grupo a Eliminar
-	fmt.Printf("Buscando grupo '%s' para eliminar...\n", rmgrp.name)
+	// Parsear Contenido y Modificar Grupo
+	fmt.Printf("Buscando grupo '%s' para modificar GID a 0...\n", rmgrp.name)
 	lines := strings.Split(oldContent, "\n")
-	newLines := []string{} // Slice para guardar las líneas que SÍ queremos mantener
+	newLines := []string{}
 	foundGroup := false
-
-	if strings.EqualFold(rmgrp.name, "root") {
-		return errors.New("error: el grupo 'root' no puede ser eliminado")
-	}
+	groupExistsWithGIDZero := false
 
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
@@ -102,27 +106,55 @@ func commandRmgrp(rmgrp *RMGRP) error {
 		}
 
 		fields := strings.Split(trimmedLine, ",")
+		// Validar formato mínimo para línea de grupo (GID, Tipo, Nombre)
+		if len(fields) < 3 {
+			fmt.Printf("Advertencia: Línea con formato incorrecto en users.txt: '%s'. Se conservará.\n", line)
+			newLines = append(newLines, line)
+			continue
+		}
+
+		// Limpiar espacios de cada campo
 		for i := range fields {
 			fields[i] = strings.TrimSpace(fields[i])
 		}
 
-		if len(fields) >= 3 && fields[1] == "G" && strings.EqualFold(fields[2], rmgrp.name) {
-			fmt.Printf("Grupo '%s' encontrado (línea: '%s'). Marcado para eliminación.\n", rmgrp.name, line)
+		isGroupLine := fields[1] == "G"                           // Verificar tipo 'G'
+		isTargetGroup := strings.EqualFold(fields[2], rmgrp.name)
+		currentGID := fields[0]
+
+		// Verificar si el grupo ya tiene GID 0
+		if isGroupLine && isTargetGroup && currentGID == "0" {
+			fmt.Printf("Información: El grupo '%s' ya tiene GID 0.\n", rmgrp.name)
+			groupExistsWithGIDZero = true     // Marcar que ya existe con GID 0
+			newLines = append(newLines, line) // Mantener línea original
+			foundGroup = true                 // Marcar como encontrado
+			continue                          // Pasar a la siguiente línea
+		}
+
+		if isGroupLine && isTargetGroup {
+			fmt.Printf("Grupo '%s' encontrado (GID: %s, Línea: '%s'). Modificando GID a 0.\n", rmgrp.name, currentGID, line)
+			fields[0] = "0"                           // Cambiar GID a "0"
+			modifiedLine := strings.Join(fields, ",") // Reconstruir la línea
+			newLines = append(newLines, modifiedLine) // Añadir la LÍNEA MODIFICADA
 			foundGroup = true
 		} else {
-			newLines = append(newLines, line) 
+			// No es el grupo que se busca
+			newLines = append(newLines, line)
 		}
 	}
 
 	// Verificar si se encontró el grupo
 	if !foundGroup {
-		return fmt.Errorf("error: el grupo '%s' no fue encontrado", rmgrp.name)
+		return fmt.Errorf("error: el grupo '%s' no fue encontrado en /users.txt", rmgrp.name)
 	}
-
+	if groupExistsWithGIDZero {
+		fmt.Println("No se realizaron cambios en el archivo ya que el grupo ya tenía GID 0.")
+		return nil
+	}
 
 	// Preparar Nuevo Contenido Final
 	newContent := strings.Join(newLines, "\n")
-	// Añadir un salto de línea final
+	// Asegurar que termine con newline si no está vacío
 	if newContent != "" && !strings.HasSuffix(newContent, "\n") {
 		newContent += "\n"
 	}
@@ -131,7 +163,7 @@ func commandRmgrp(rmgrp *RMGRP) error {
 
 	// Liberar Bloques Antiguos de users.txt
 	fmt.Println("Liberando bloques antiguos de /users.txt...")
-	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
+	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath) // Asume que existe
 	if errFree != nil {
 		fmt.Printf("ADVERTENCIA: Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
 		return fmt.Errorf("error liberando bloques antiguos: %w", errFree)
@@ -142,20 +174,18 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	// Asignar Nuevos Bloques para el nuevo contenido
 	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
 	var newAllocatedBlockIndices [15]int32
-	// Usar allocateDataBlocks existente
-	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
+	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath) // Asume que existe
 	if err != nil {
 		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
 	}
 
 	// Actualizar Inodo de users.txt
 	fmt.Println("Actualizando inodo /users.txt...")
-	usersInode.I_size = newSize                     // Actualizar tamaño
-	usersInode.I_mtime = float32(time.Now().Unix()) // Actualizar tiempo de modificación
-	usersInode.I_atime = usersInode.I_mtime         // Actualizar tiempo de acceso
-	usersInode.I_block = newAllocatedBlockIndices   // Actualizar lista de bloques
+	usersInode.I_size = newSize
+	usersInode.I_mtime = float32(time.Now().Unix())
+	usersInode.I_atime = usersInode.I_mtime
+	usersInode.I_block = newAllocatedBlockIndices
 
-	// Serializar el inodo actualizado
 	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
 	err = usersInode.Serialize(partitionPath, usersInodeOffset)
 	if err != nil {
@@ -166,8 +196,9 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	fmt.Println("Serializando SuperBlock después de RMGRP...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
-		return fmt.Errorf("error al serializar el superbloque después de rmgrp: %w", err)
+		return fmt.Errorf("ADVERTENCIA: error al serializar el superbloque después de rmgrp, los contadores podrían estar desactualizados (%w)", err)
 	}
 
-	return nil
+	fmt.Println("Operación RMGRP (modificar GID a 0) completada.")
+	return nil 
 }
