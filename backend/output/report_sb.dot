@@ -1,0 +1,22 @@
+digraph G {
+	node [shape=plaintext]
+	tabla [label=<
+		<table border="0" cellborder="1" cellspacing="0">
+			<tr><td colspan="2" bgcolor="gray"><b> REPORTE SUPERBLOQUE </b></td></tr>
+			<tr><td bgcolor="lightblue"><b>s_inodes_count</b></td><td>3691</td></tr>
+			<tr><td bgcolor="lightgreen"><b>s_blocks_count</b></td><td>11073</td></tr>
+			<tr><td bgcolor="lightblue"><b>s_free_inodes_count</b></td><td>3685</td></tr>
+			<tr><td bgcolor="lightgreen"><b>s_free_blocks_count</b></td><td>11067</td></tr>
+			<tr><td bgcolor="lightgray"><b>s_mtime</b></td><td>2025-03-30 00:41:04 -0600 CST</td></tr>
+			<tr><td bgcolor="lightgray"><b>s_umtime</b></td><td>2025-03-30 00:41:04 -0600 CST</td></tr>
+			<tr><td bgcolor="lightgray"><b>s_mnt_count</b></td><td>1</td></tr>
+			<tr><td bgcolor="lightgray"><b>s_magic</b></td><td>61267</td></tr>
+			<tr><td bgcolor="lightblue"><b>s_inode_size</b></td><td>88</td></tr>
+			<tr><td bgcolor="lightgreen"><b>s_block_size</b></td><td>64</td></tr>
+			<tr><td bgcolor="lightblue"><b>s_first_ino</b></td><td>15513</td></tr>
+			<tr><td bgcolor="lightgreen"><b>s_first_blo</b></td><td>340177</td></tr>
+			<tr><td bgcolor="lightblue"><b>s_bm_inode_start</b></td><td>221</td></tr>
+			<tr><td bgcolor="lightgreen"><b>s_bm_block_start</b></td><td>3912</td></tr>
+			<tr><td bgcolor="lightblue"><b>s_inode_start</b></td><td>14985</td></tr>
+			<tr><td bgcolor="lightgreen"><b>s_block_start</b></td><td>339793</td></tr>
+		</table>>] }

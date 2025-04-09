@@ -1,0 +1,30 @@
+digraph G {
+	node [shape=none];
+	graph [splines=false];
+	subgraph cluster_disk {
+		label="Disco: DiscoLab.mia (Tamaño Total: 5242880 bytes)";
+		style=filled;
+		fillcolor=white;
+		color=black;
+		penwidth=2;
+		table [label=<
+			<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="10" WIDTH="800">
+			<TR>
+			<TD BGCOLOR="gray" ALIGN="CENTER"><B>MBR</B><BR/>153 bytes</TD>
+			<TD BGCOLOR="lightblue" WIDTH="160" ALIGN="CENTER"><B>Primaria</B><BR/>Particion1<BR/>1048576 bytes<BR/>(20.00%)</TD>
+			<TD BGCOLOR="lightcoral" WIDTH="160" ALIGN="CENTER" CELLPADDING="0">
+				<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5" WIDTH="100%" HEIGHT="100%">
+				<TR><TD COLSPAN="100" ALIGN="CENTER" BGCOLOR="orange"><B>Extendida: Particion2 (1048576 bytes)</B></TD></TR>
+				<TR>
+				<TD BGCOLOR="gray" WIDTH="20" ALIGN="CENTER"><B>EBR</B></TD>
+				<TD BGCOLOR="lightgreen" WIDTH="50" ALIGN="CENTER"><B>Lógica</B><BR/>Particion3<BR/>1024 bytes<BR/>(0.02%)</TD>
+				<TD BGCOLOR="#D3D3D3" WIDTH="159" ALIGN="CENTER"><B>Libre Ext.</B><BR/>1047522 bytes<BR/>(19.98%)</TD>
+				</TR>
+				</TABLE>
+			</TD>
+			<TD BGCOLOR="#F5F5F5" WIDTH="479" ALIGN="CENTER"><B>Libre</B><BR/>3145575 bytes<BR/>(60.00%)</TD>
+			</TR>
+			</TABLE>
+>];
+	}
+}

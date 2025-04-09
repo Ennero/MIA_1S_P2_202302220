@@ -1,0 +1,11 @@
+digraph G {
+        rankdir=LR;
+        node [shape=plaintext];
+    
+	block0 [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4"><tr><td colspan="2" bgcolor="lightcoral"><b>Bloque Carpeta 0</b></td></tr><tr><td bgcolor="lightgreen"><b>Nombre</b></td><td bgcolor="lightgreen"><b>Inodo Ptr</b></td></tr><tr><td>.</td><td>0</td></tr><tr><td>..</td><td>0</td></tr><tr><td>users.txt</td><td>1</td></tr><tr><td>limones.txt</td><td>2</td></tr></table>>];
+	block0 -> block1;
+	block1 [label=<<table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                            <tr><td bgcolor="lightgoldenrodyellow"><b>Bloque Archivo 1</b></td></tr>
+                            <tr><td align="left">1,G,root<BR/>1,U,root,123<BR/></td></tr>
+                        </table>>];
+}

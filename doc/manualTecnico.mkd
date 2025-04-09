@@ -1,0 +1,1937 @@
+# Manual Técnico - Proyecto 1
+## Objetivos
+### Objetivo General
+- Describir detalladamente la implementación, arquitectura, estructuras de datos y lógica de funcionamiento del simulador de sistema de archivos EXT2, facilitando su comprensión, uso y mantenimiento futuro en el contexto del curso de Manejo e Implementación de Archivos.
+### Objetivos Específicos
+- Explicar en detalle las estructuras de datos clave que simulan los componentes de un disco y un sistema de archivos EXT2 (MBR, Particiones, EBR, SuperBloque, Inodos, Bloques de Datos/Carpetas/Punteros, Bitmaps).
+- Presentar la arquitectura Cliente-Servidor utilizada (Frontend Vue.js y Backend Go).
+- Detallar el proceso de serialización y deserialización de estas estructuras hacia/desde un archivo binario que representa el disco virtual.
+
+## Alcances del Sistema
+Este sistema simula la creación y gestión de discos virtuales y sistemas de archivos basados en la estructura EXT2. El alcance funcional incluye:
+
+### Gestión de Discos
+- Creación de discos virtuales (mkdisk) con tamaño y ajuste especificados (BF, FF, WF).
+- Eliminación de discos virtuales (rmdisk).
+
+### Gestión de Particiones
+- Creación de particiones Primarias (fdisk -type=P).
+- Creación de partición Extendida (fdisk -type=E) (máximo una por disco).
+- Creación de particiones Lógicas (fdisk -type=L) dentro de la Extendida, utilizando EBRs encadenados.
+
+### Montaje
+- Montaje de particiones Primarias y Lógicas (mount) asignando un ID único.
+- Listado de particiones montadas (mounted).
+
+### Formateo
+- Creación de un sistema de archivos EXT2 (mkfs) en una partición montada, incluyendo:
+  - Cálculo de número de inodos y bloques (n).
+  - Escritura del SuperBloque.
+  - Inicialización de Bitmaps de Inodos y Bloques.
+  - Creación del Inodo raíz (/).
+  - Creación del archivo /users.txt con el usuario root inicial.
+
+
+### Gestión de Usuarios y Grupos 
+- Inicio de sesión (login) validando contra /users.txt.
+- Cierre de sesión (logout).
+- Creación de grupos (mkgrp).
+- Eliminación de grupos (rmgrp) (excepto root).
+- Creación de usuarios (mkusr) asignados a un grupo existente.
+- Eliminación de usuarios (rmusr) (excepto root).
+- Cambio de grupo para un usuario (chgrp).
+
+### Gestión de Archivos y Directorios
+- Creación de directorios (mkdir), incluyendo creación recursiva de padres (-p).
+- Creación de archivos (mkfile), con contenido opcional desde tamaño (-size) o archivo local (-cont), y creación recursiva de padres (-r). Soporta indirección simple y doble (triple pendiente).
+- Visualización de contenido de archivos (cat).
+
+### Generación de Reportes
+- Generación de reportes gráficos (rep) usando Graphviz sobre: MBR (mbr), Disco (disk), SuperBloque (sb), Bitmaps (bm_inode, bm_block), Tabla de Inodos (inode), Bloques Usados (block), Árbol de Directorios/Archivos (tree), Contenido de Archivo (file), Listado tipo ls -l (ls).
+
+
+## Especificaciones técnicas
+### Requisitos de Hardware
+- **Memoria RAM:** 2GB (Recomendado 4GB+ para ejecución fluida, especialmente con discos grandes).
+- **Espacio en Disco:** 1GB libre (para el código fuente, Go, Node.js, y los discos virtuales generados).
+
+- **Procesador:** 1GHz x64 o superior.
+- Pantalla
+- Teclado
+- Mouse (opcional)
+### Requisitos de Software 
+- **Sistema Operativo:** Compatible con Go y Node.js (Linux [Mint/Ubuntu recomendado], macOS, Windows).
+- **Go:** Versión 1.18 o superior
+- **Node.js:** Versión LTS recomendada (Verificar con node -v). Incluye npm.
+- **Vue CLI:** (Si se usa para gestionar el frontend Vue)
+- **Graphviz:** Necesario para generar los reportes gráficos. Debe estar instalado y el comando dot accesible desde el PATH del sistema (Verificar con dot -V).
+- **IDE/Editor:** Visual Studio Code (recomendado) con extensiones para Go y Vue.js, u otro editor/IDE de preferencia.
+- **Terminal/Consola:** Para compilar y ejecutar el backend/frontend.
+
+### Descripción de la arquitectura del programa
+El sistema sigue una arquitectura **Cliente-Servidor** desacoplada:
+
+#### Frontend
+- Tecnología: Desarrollado con Vue.js (Framework progresivo de JavaScript).
+- Interfaz: Una aplicación de página única (SPA) que presenta una interfaz similar a una consola.
+  - Área de texto para ingresar comandos manualmente o cargar desde archivo .mias.
+  - Botones para "Cargar Archivo", "Ejecutar" y "Limpiar".
+  - Área de texto (solo lectura) para mostrar la salida de los comandos y mensajes del sistema.
+- Comunicación: Se comunica con el backend a través de peticiones HTTP (específicamente POST) a una API REST definida por el backend. Envía los comandos como un string dentro de un objeto JSON { "command": "..." }. Recibe las respuestas del backend (salida o errores) también en formato JSON.
+- Flujo: El frontend es responsable de la interacción con el usuario, la validación básica de entrada (ej. extensión .mias), y la presentación de resultados. Envía los comandos línea por línea al backend para su procesamiento.
+
+```vue
+<template>
+  <div id="app" class="container py-5">
+    <div class="row justify-content-center">
+      <div class="col-md-10">
+        <!-- Cabecera -->
+        <div class="text-center mb-4">
+          <h1 class="display-5 fw-bold text-primary">Sistema de archivos EXT2</h1>
+          <hr class="my-4 text-primary opacity-75">
+        </div>
+        
+        <!-- Panel de comandos -->
+        <div class="card border-0 shadow-lg mb-4 bg-white rounded">
+          <div class="card-header bg-primary text-white p-3">
+            <div class="d-flex align-items-center">
+              <i class="bi bi-terminal-fill me-2 fs-5"></i>
+              <h5 class="mb-0">Consola de comandos</h5>
+            </div>
+          </div>
+          <div class="card-body p-4">
+            <div class="form-floating mb-3">
+              <textarea 
+                v-model="entrada" 
+                class="form-control bg-light"
+                id="commandTextarea" 
+                style="height: 120px"
+                placeholder="Escribe comandos aquí..."
+              ></textarea>
+              <label for="commandTextarea">Ingresa el comando o script</label>
+            </div>
+            
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="input-group">
+                  <label class="input-group-text bg-secondary text-white">
+                    <i class="bi bi-file-earmark-text"></i>
+                  </label>
+                  <input 
+                    type="file" 
+                    class="form-control" 
+                    @change="handleFileUpload"
+                    accept=".mias"
+                    id="fileInput"
+                  />
+                </div>
+                <div class="form-text text-muted mt-1">
+                  <i class="bi bi-info-circle-fill me-1"></i> Solo archivos con extensión .mias
+                </div>
+                <div v-if="fileError" class="alert alert-danger mt-2 py-2 small">
+                  <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ fileError }}
+                </div>
+              </div>
+              <div class="col-md-3">
+                <button class="btn btn-primary w-100 d-flex justify-content-center align-items-center" @click="ejecutar">
+                  <i class="bi bi-play-fill me-2"></i> Ejecutar
+                </button>
+              </div>
+              <div class="col-md-3">
+                <button class="btn btn-danger w-100 d-flex justify-content-center align-items-center" @click="limpiar">
+                  <i class="bi bi-trash me-2"></i> Limpiar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Panel de salida -->
+        <div class="card border-0 shadow-lg bg-white rounded">
+          <div class="card-header bg-success text-white p-3">
+            <div class="d-flex align-items-center">
+              <i class="bi bi-code-square me-2 fs-5"></i>
+              <h5 class="mb-0">Resultado de comandos</h5>
+            </div>
+          </div>
+          <div class="card-body p-4">
+            <!-- Se eliminó form-floating y su label -->
+            <textarea 
+              v-model="salida" 
+              class="form-control bg-dark text-light font-monospace"
+              style="height: 180px"
+              id="outputTextarea"
+              readonly
+              placeholder="La salida aparecerá aquí..."
+            ></textarea>
+          </div>
+          <div class="card-footer bg-light p-3 text-end">
+            <span class="badge bg-info text-dark">
+              <i class="bi bi-info-circle me-1"></i> Sistema de archivos EXT2 • Enner Mendizabal 202302220
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      entrada: "",
+      salida: "",
+      fileError: ""
+    };
+  },
+  methods: {
+    handleFileUpload(event) {
+      const file = event.target.files[0];
+      this.fileError = "";
+
+      if (!file) return;
+
+      const fileName = file.name;
+      const fileExtension = fileName.split('.').pop().toLowerCase();
+
+      if (fileExtension !== 'mias') {
+        this.fileError = "Solo se permiten archivos con extensión .mias";
+        event.target.value = '';
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        this.entrada = e.target.result;
+        this.salida = `✅ Archivo cargado: ${fileName}\n--- Contenido ---\n${this.entrada}\n---------------\nListo para ejecutar.`; // Mostrar contenido cargado
+      };
+      reader.readAsText(file);
+    },
+    async ejecutar() { // Marcar la función como async
+      if (!this.entrada.trim()) {
+        this.salida = "⚠️ No hay comandos para ejecutar";
+        return;
+      }
+
+      // Limpiar salida anterior e indicar inicio
+      this.salida = "🔄 Ejecutando comandos...\n------------------------\n";
+
+      // Dividir la entrada en líneas
+      const lines = this.entrada.split('\n');
+      let hasErrors = false; // Para rastrear si hubo algún error
+
+      // Iterar sobre cada línea
+      for (const line of lines) {
+        const trimmedLine = line.trim(); // Quitar espacios inicio/fin
+
+        // Ignorar líneas vacías y comentarios en el frontend también
+        if (trimmedLine === "" || trimmedLine.startsWith("#")) {
+          // Opcional: Mostrar línea ignorada en la salida
+          // this.salida += `(Ignorando: ${line})\n`;
+          continue; // Pasar a la siguiente línea
+        }
+
+        // Mostrar el comando que se va a ejecutar
+        this.salida += `> ${trimmedLine}\n`;
+
+        try {
+          const response = await fetch('http://localhost:3001/', { // Usar await para esperar la respuesta
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            // Enviar solo la línea actual como comando
+            body: JSON.stringify({ command: trimmedLine }),
+          });
+
+          // Leer la respuesta del backend
+          const data = await response.json(); // Usar await
+
+          // Verificar si el backend reportó un error en su estructura JSON
+          if (data.error) {
+              this.salida += `❌ Error: ${data.error}\n`;
+              hasErrors = true;
+          } else if (!response.ok) {
+              let errorMsg = `Error HTTP ${response.status}`;
+             if(data.output) { // Si hay 'output' aunque no sea OK, podría tener el error
+                errorMsg += `: ${data.output}`;
+             } else if(data.error) { // O si hay campo 'error'
+                errorMsg += `: ${data.error}`;
+              }
+              this.salida += `❌ ${errorMsg}\n`;
+              hasErrors = true;
+          } else {
+            if (data.output && data.output.trim() !== "") {
+                this.salida += `${data.output}\n`;
+            } else {
+                 // Si no hay output, al menos indicar que se completó ok (opcional)
+                this.salida += `(OK)\n`;
+            }
+          }
+        } catch (error) {
+           // Error de red o al parsear JSON
+          console.error("Error en fetch:", error);
+          this.salida += `❌ Error de conexión o respuesta inválida del backend.\n`;
+          hasErrors = true;
+        }
+        this.salida += "------------------------\n";
+      } 
+
+      this.salida += hasErrors ? "⚠️ Ejecución completada con errores." : "✅ Ejecución completada.";
+
+    },
+    limpiar() {
+       // ... (tu código de limpiar sin cambios)
+      this.entrada = "";
+      this.salida = "";
+      this.fileError = "";
+      const fileInput = document.getElementById('fileInput');
+      if (fileInput) fileInput.value = '';
+    },
+  },
+};
+</script>
+
+<style>
+@import "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+@import "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css";
+
+body {
+  background: #f8f9fa;
+}
+.card {
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+textarea.form-control:focus {
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+  border-color: #86b7fe;
+}
+
+.font-monospace {
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+</style>
+``` 
+
+
+
+![1](./img/1.png)
+
+En la parte inferior, la consola muestra los resultados de los comandos ejecutados y proporciona información sobre el estado del sistema de archivos.
+
+El frontend está desarrollado con el framework Vue.js y se comunica con el backend mediante una API REST y JSON.
+
+
+#### Backend
+- Tecnología: Desarrollado en Go, utilizando el framework web Fiber para la gestión de rutas y peticiones HTTP de alto rendimiento.
+- Núcleo: Contiene toda la lógica de simulación del sistema de archivos EXT2.
+  - API REST: Expone un endpoint (ej. http://localhost:3001/) que acepta peticiones POST con el comando a ejecutar.
+  - Analizador (analyzer): Recibe la línea de comando, la limpia (ignora comentarios, vacíos), identifica el comando principal y lo dirige al parser correspondiente.
+  - Parsers (commands/Parse...): Funciones específicas para cada comando (ParseMkdisk, ParseFdisk, etc.) que validan y extraen los parámetros usando expresiones regulares y lógica de validación. Retornan una estructura específica del comando o un error.
+  - Lógica de Comandos (commands/command...): Funciones que toman la estructura parseada y ejecutan la acción principal, interactuando con las estructuras del sistema de archivos.
+  - Estructuras (structures): Define las estructuras de datos Go (MBR, Partition, EBR, SuperBlock, Inode, etc.) y sus métodos de serialización/deserialización. Contiene también la lógica de más bajo nivel (ej. FindInodeByPath, ReadFileContent, CreateFolder, FreeInodeBlocks, allocateDataBlocks).
+  - Almacenamiento (stores): Maneja el estado global, como las particiones montadas (MountedPartitions) y el estado de autenticación (Auth).
+  - Utilidades (utils): Funciones de ayuda genéricas (ej. conversión de tamaño, manipulación de paths).
+  - Reportes (reports): Lógica para generar los archivos .dot de Graphviz para cada tipo de reporte.
+- Disco Virtual: El "disco" se simula como un archivo binario en el sistema de archivos del host (ej. Disco1.mia). Todas las operaciones leen y escriben directamente en este archivo usando offsets calculados y encoding/binary.
+- Comunicación: Recibe JSON del frontend, procesa el comando, y devuelve una respuesta JSON con la salida (output) o un mensaje de error (error).
+
+```go
+package main
+
+import (
+	analyzer "backend/analyzer"
+	"fmt" // Importa el paquete "fmt" para formatear e imprimir texto
+	"strings"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+)
+
+//EStructura para representar el comando de solicitud
+type CommandRequest struct {
+	Command string `json:"command"`
+}
+
+//Estructura para representar la respuesta del comando
+type CommandResponse struct {
+	Output string `json:"output"`
+}
+
+
+func main() {
+	app := fiber.New()
+
+	app.Use(cors.New(cors.Config{}))
+
+	app.Post("/", func(c *fiber.Ctx) error {
+		var req CommandRequest
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(CommandResponse{
+				Output: "Error: Petición inválida",
+			})
+		}
+
+		commands := strings.Split(req.Command, "\n")
+		output := ""
+
+		for _, cmd := range commands {
+			if strings.TrimSpace(cmd) == "" {
+				continue
+			}
+
+			result, err := analyzer.Analyzer(cmd)
+			if err != nil {
+				output += fmt.Sprintf("Error: %s\n", err.Error())
+			} else {
+				output += fmt.Sprintf("%s\n", result)
+			}
+		}
+
+		if output == "" {
+			output = "No se ejecutó ningún comando"
+		}
+
+		return c.JSON(CommandResponse{
+			Output: output,
+		})
+	})
+
+	app.Listen(":3001")
+}
+
+```
+#### Diagrama de integración
+![2](./img/2.png)
+
+### Explicación de las estructuras de datos
+Para la creación de este proyecto, se usaron estructuras de vital importancia para los sistemas de archivos entre los cuales están MBR, EBR, inodos y bloques. A continuación una pequeña explicación de cada una algunas de estas:
+
+
+
+#### Estructura MBR
+ Ubicado en el primer sector del disco. La estructura MBR se crea junto a un nuevo disco, que en este proyecto es el archivo de la extensión .mia.
+Este contiene dentro de sí la información de todas las particiones del sistema de archivos, por lo que se encuentra en el primer sector del disco. Este contiene la siguiente información:
+- Tamaño del disco en byte
+- Fecha de creación del disco
+- Un número único que lo identifica
+- Un ajuste del tipo de partición
+- Información de las cuatro particiones capaces de contener en sí
+
+```go
+type MBR struct {
+	Mbr_size           int32        // Tamaño del MBR en bytes
+	Mbr_creation_date  float32      // Fecha y hora de creación del MBR
+	Mbr_disk_signature int32        // Firma del disco
+	Mbr_disk_fit       [1]byte      // Tipo de ajuste
+	Mbr_partitions     [4]Partition // Particiones del MBR
+}
+```
+
+#### Estructrura EBR
+La estructura EBR se utiliza para manejar particiones lógicas dentro de una partición extendida. Se encuentra en el primer sector de cada partición lógica y permite encadenar múltiples particiones lógicas dentro de una extendida. Contiene la siguiente información:
+- Estado de la partición (activa o inactiva).
+- Tipo de sistema de archivos.
+- Tamaño de la partición en bytes.
+- Dirección del siguiente EBR (si existe otra partición lógica).
+- Dirección de inicio de la partición lógica
+```go
+type EBR struct {
+	Part_status  [1]byte  // Estado de la partición
+	Part_fit     [1]byte  // Tipo de ajuste
+	Part_start   int32    // Byte de inicio de la partición
+	Part_size    int32    // Tamaño de la partición
+	Part_next    int32    // Dirección del siguiente EBR (-1 si no hay otro)
+	Part_name    [16]byte // Nombre de la partición
+}
+```
+#### INODO
+Los inodos son estructuras fundamentales en el sistema de archivos EXT2, encargadas de almacenar la información de archivos y carpetas. Cada inodo contiene metadatos sobre un archivo o directorio, pero no almacena directamente su contenido. Un inodo incluye la siguiente información:
+
+- Tipo de archivo (archivo regular, directorio, enlace simbólico, etc.).
+- Permisos de acceso (lectura, escritura, ejecución).
+- UID y GID del propietario y grupo del archivo.
+- Tamaño del archivo en bytes.
+- Timestamps (fecha de creación, modificación y acceso).
+- Número de enlaces (cantidad de referencias al inodo).
+- Punteros a bloques de datos, organizados en:
+  - 12 punteros directos → Apuntan directamente a bloques de datos.
+  - 1 puntero indirecto simple → Apunta a un bloque que contiene más punteros a datos.
+  - 1 puntero indirecto doble → Apunta a un bloque que contiene punteros a otros bloques de punteros.
+  - 1 puntero indirecto triple → Apunta a un bloque que contiene punteros a bloques de punteros dobles.
+
+Los inodos permiten una administración eficiente del espacio en disco, separando los metadatos de los datos del archivo.
+
+```go
+type Inode struct {
+	I_uid   int32
+	I_gid   int32
+	I_size  int32
+	I_atime float32
+	I_ctime float32
+	I_mtime float32
+	I_block [15]int32
+	I_type  [1]byte
+	I_perm  [3]byte
+}
+```
+
+#### SUPERBLOCK
+El SuperBlock es una estructura clave del sistema de archivos EXT2. Contiene la información principal sobre el sistema de archivos y se encuentra al inicio de cada partición formateada con EXT2. Contiene la siguiente información:
+- Tamaño total del sistema de archivos.
+- Número total de inodos y bloques.
+- Tamaño de los bloques.
+- Cantidad de bloques e inodos libres.
+- Dirección del primer bloque de datos.
+
+```go
+type SuperBlock struct {
+	S_filesystem_type   int32
+	S_inodes_count      int32
+	S_blocks_count      int32
+	S_free_inodes_count int32
+	S_free_blocks_count int32
+	S_mtime             float32
+	S_umtime            float32
+	S_mnt_count         int32
+	S_magic             int32
+	S_inode_size        int32
+	S_block_size        int32
+	S_first_ino         int32
+	S_first_blo         int32
+	S_bm_inode_start    int32
+	S_bm_block_start    int32
+	S_inode_start       int32
+	S_block_start       int32
+	// Total: 68 bytes
+}
+```
+Basicamente porporciona información general del sistema de archivos.
+
+#### BITMAP
+No son una struct Go, sino áreas de bytes en el disco.
+
+- Ubicación: Indicada por S_bm_inode_start y S_bm_block_start en el SuperBloque.
+- Tamaño: S_inodes_count bytes para el bitmap de inodos, S_blocks_count bytes para el de bloques.
+- Formato: Cada byte representa un inodo o bloque. '0' indica libre, '1' indica usado.
+- Función: Permiten encontrar rápidamente inodos/bloques libres y llevar control del espacio.
+  
+#### POINTERBLOCK
+El PointerBlock es una estructura que almacena direcciones de bloques de datos. Se utiliza para gestionar archivos o carpetas grandes que requieren más de un bloque de almacenamiento. Puede contener:
+- Punteros directos a bloques de datos.
+- Punteros indirectos a otros PointerBlocks (para estructuras más grandes).
+```go
+type PointerBlock struct {
+	P_pointers [16]int32 // 16 * 4 = 64 bytes
+	// Total: 64 bytes
+}
+```
+#### PARTITION
+La Partition es una división dentro del disco que puede contener un sistema de archivos. Existen tres tipos en este proyecto:
+- Primaria: Contiene directamente un sistema de archivos.
+- Extendida: Puede contener múltiples particiones lógicas.
+- Lógica: Se almacena dentro de una partición extendida y contiene un sistema de archivos.
+Cada partición contiene la siguiente información:
+- Tipo de partición.
+- Tamaño en bytes.
+- Punto de inicio dentro del disco.
+- Estado (activa o inactiva).
+
+```go
+type Partition struct {
+	Part_status      [1]byte  // Estado de la partición
+	Part_type        [1]byte  // Tipo de partición
+	Part_fit         [1]byte  // Ajuste de la partición
+	Part_start       int32    // Byte de inicio de la partición
+	Part_size        int32    // Tamaño de la partición
+	Part_name        [16]byte // Nombre de la partición
+	Part_correlative int32    // Correlativo de la partición
+	Part_id          [4]byte  // ID de la partición
+}
+```
+
+#### FOLDERBLOCK
+El FolderBlock almacena la información de una carpeta dentro del sistema de archivos. Contiene una lista de entradas que pueden ser archivos o subcarpetas. Cada entrada almacena:
+- Nombre de la carpeta o archivo.
+- Número de inodo asociado.
+
+Si una carpeta tiene muchas entradas, puede utilizar PointerBlocks para almacenar más referencias.
+
+```go
+type FolderBlock struct {
+	B_content [4]FolderContent // 4 * 16 = 64 bytes
+	// Total: 64 bytes
+}
+
+type FolderContent struct {
+	B_name  [12]byte
+	B_inodo int32
+	// Total: 16 bytes
+}
+```
+
+#### FILEBLOCK
+El FileBlock almacena datos de un archivo en bloques de tamaño fijo. Cada FileBlock es parte de la estructura de un archivo y contiene:
+- Datos del archivo en formato binario.
+- Punteros a otros FileBlocks si el archivo es grande.
+```go
+type FileBlock struct {
+	B_content [64]byte
+}
+```
+
+#### users.txt (Archivo Especial)
+- Ubicación: /users.txt (Inodo 1, por convención de CreateUsersFile).
+- Formato: Archivo de texto plano, cada línea representa un usuario o grupo.
+  - Línea Grupo: GID,G,GroupName (Ej: 1,G,root)
+  - Línea Usuario: UID,U,GroupName,Username,Password (Ej: 2,U,root,admin,adminpass)
+- Propósito: Almacena la información de usuarios y grupos para los comandos de gestión (mkusr, rmusr, mkgrp, rmgrp, chgrp) y autenticación (login). UID y GID comparten el mismo espacio numérico (el ID más alto + 1 se usa para el siguiente usuario o grupo).
+
+### Descripción de los comandos implementados
+Los comando utilizado para la ejecución de todo el proceso fueron los siguiente:
+
+#### MKDISK
+Este comando se utiliza para crear un archivo binario que simula un disco duro físico.  Al crearlo, se especifica el tamaño, la unidad de medida (KB, MB), el tipo de ajuste para las particiones (Best Fit, First Fit, Worst Fit) y la ruta donde se guardará el archivo.  El archivo binario se inicializa llenándolo con ceros binarios, representando el espacio disponible del disco. 
+```go
+func commandMkdisk(mkdisk *MKDISK) error {
+	// Convertir el tamaño a bytes
+	sizeBytes, err := utils.ConvertToBytes(mkdisk.size, mkdisk.unit)
+	if err != nil {
+		fmt.Println("Error converting size:", err)
+		return err
+	}
+
+	// Crear el disco con el tamaño proporcionado
+	err = createDisk(mkdisk, sizeBytes)
+	if err != nil {
+		fmt.Println("Error creating disk:", err)
+		return err
+	}
+
+	// Crear el MBR con el tamaño proporcionado
+	err = createMBR(mkdisk, sizeBytes)
+	if err != nil {
+		fmt.Println("Error creating MBR:", err)
+		return err
+	}
+
+	return nil
+}
+```
+
+#### FDISK
+Este comando es fundamental para la administración de particiones dentro de un disco duro virtual.  Permite crear, eliminar o modificar particiones.  Al crear una partición, se pueden especificar parámetros como el tamaño, la unidad de medida, la ruta del disco, el tipo de partición (primaria, extendida o lógica), el algoritmo de ajuste de espacio (Best Fit, First Fit, Worst Fit) y el nombre de la partición.  El sistema debe controlar que se cumplan las reglas de las particiones (máximo 4 particiones primarias o extendidas, solo una extendida por disco, etc.) y mostrar mensajes de error si no se pueden realizar las operaciones.
+```go
+func commandFdisk(fdisk *FDISK) error {
+	// Convertir el tamaño a bytes
+	sizeBytes, err := utils.ConvertToBytes(fdisk.size, fdisk.unit)
+	if err != nil {
+		fmt.Println("Error convirtiendo tamaño:", err)
+		return err
+	}
+
+	switch fdisk.typ {
+	case "P":
+		// Crear partición primaria
+		err = createPrimaryPartition(fdisk, sizeBytes)
+		if err != nil {
+			fmt.Println("Error creando partición primaria:", err)
+			return err
+		}
+	case "E":
+		// Crear partición extendida
+		err = createExtendedPartition(fdisk, sizeBytes)
+		if err != nil {
+			fmt.Println("Error creando partición primaria:", err)
+			return err
+		}
+	case "L":
+		// Crear partición lógica
+		err = createLogicalPartition(fdisk, sizeBytes)
+		if err != nil {
+			fmt.Println("Error creando partición primaria:", err)
+			return err
+		}
+	}
+	if err != nil {
+		fmt.Println("Error creando partición:", err)
+		return err
+	}
+
+	return nil
+}
+```
+
+#### MOUNT
+mite "montar" una partición de un disco en el sistema.  Esto implica hacerla accesible para las operaciones del sistema de archivos.  El comando recibe como parámetros la ruta del disco y el nombre de la partición a montar.  Al montar, se le asigna un ID a la partición y se actualiza su estado en las estructuras de datos.  Es importante tener en cuenta que el montaje se realiza en la memoria RAM, no en el disco.
+```go
+func commandMount(mount *MOUNT) error {
+	// Crear una instancia de MBR
+	var mbr structures.MBR
+
+	// Deserializar la estructura MBR desde un archivo binario
+	err := mbr.Deserialize(mount.path)
+	if err != nil {
+		fmt.Println("Error deserializando el MBR:", err)
+		return err
+	}
+
+	// Buscar la partición con el nombre especificado
+	partition, indexPartition := mbr.GetPartitionByName(mount.name)
+	if partition == nil {
+		fmt.Println("Error: la partición no existe")
+		return errors.New("la partición no existe")
+	}
+
+	/* SOLO PARA VERIFICACIÓN */
+	// Print para verificar que la partición se encontró correctamente
+	fmt.Println("\nPartición disponible:")
+	partition.PrintPartition()
+
+	//Aquí verifico si no se montó antes
+	for _, valor:= range stores.ListPatitions{
+		if valor == mount.name{
+			fmt.Println("Error: la partición ya está montada")
+			return errors.New("la partición ya está montada")
+		}
+	}
+
+	// Generar un id único para la partición
+	idPartition, partitionCorrelative, err := generatePartitionID(mount)
+	if err != nil {
+		fmt.Println("Error generando el id de partición:", err)
+		return err
+	}
+
+
+
+	//  Guardar la partición montada en la lista de montajes globales
+	stores.MountedPartitions[idPartition] = mount.path
+	stores.ListPatitions = append(stores.ListPatitions, mount.name)
+	stores.ListMounted = append(stores.ListMounted, idPartition)
+
+	// Modificamos la partición para indicar que está montada
+	partition.MountPartition(partitionCorrelative, idPartition)
+
+	/* SOLO PARA VERIFICACIÓN */
+	// Print para verificar que la partición se haya montado correctamente
+	fmt.Println("\nPartición montada (modificada):")
+	partition.PrintPartition()
+
+	// Guardar la partición modificada en el MBR
+	mbr.Mbr_partitions[indexPartition] = *partition
+
+	// Serializar la estructura MBR en el archivo binario
+	err = mbr.Serialize(mount.path)
+	if err != nil {
+		fmt.Println("Error serializando el MBR:", err)
+		return err
+	}
+
+	return nil
+}
+```
+
+#### MKFS
+Este comando formatea una partición, preparándola para almacenar archivos y directorios.  En este caso, el formateo se realiza con el sistema de archivos EXT2.  Además, crea un archivo llamado "users.txt" en el directorio raíz de la partición, el cual almacenará información sobre los usuarios y grupos del sistema.  Los parámetros que recibe son el ID de la partición a formatear y, opcionalmente, el tipo de formateo (completo). 
+```go
+func commandMkfs(mkfs *MKFS) error {
+	// Obtener la partición montada
+	mountedPartition, partitionPath, err := stores.GetMountedPartition(mkfs.id)
+	if err != nil {
+		return err
+	}
+
+	// Verificar la partición montada
+	fmt.Println("\nPatición montada:")
+	mountedPartition.PrintPartition()
+
+	// Calcular el valor de n
+	n := calculateN(mountedPartition)
+
+	// Verificar el valor de n
+	fmt.Println("\nValor de n:", n)
+
+	// Inicializar un nuevo superbloque
+	superBlock := createSuperBlock(mountedPartition, n)
+
+	// Verificar el superbloque
+	fmt.Println("\nSuperBlock:")
+	superBlock.Print()
+
+	// Crear los bitmaps
+	err = superBlock.CreateBitMaps(partitionPath)
+	if err != nil {
+		return err
+	}
+
+	// Crear archivo users.txt
+	err = superBlock.CreateUsersFile(partitionPath)
+	if err != nil {
+		return err
+	}
+
+	// Verificar superbloque actualizado
+	fmt.Println("\nSuperBlock actualizado:")
+	superBlock.Print()
+
+	// Serializar el superbloque
+	err = superBlock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+```
+
+#### REP
+Este comando genera reportes sobre el sistema de archivos.  Recibe como parámetros el nombre del reporte a generar, la ruta donde se guardará el reporte y el ID de la partición a utilizar.  Algunos reportes pueden recibir parámetros adicionales, como la ruta de un archivo o carpeta.  Los reportes se generan utilizando Graphviz.
+```go
+func commandRep(rep *REP) error {
+	// Obtener la partición montada
+	mountedMbr, mountedSb, mountedDiskPath, err := stores.GetMountedPartitionRep(rep.id)
+	if err != nil {
+		return err
+	}
+
+	// Switch para manejar diferentes tipos de reportes
+	switch rep.name {
+	case "mbr":
+		err = reports.ReportMBR(mountedMbr, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+		}
+	case "inode":
+		err = reports.ReportInode(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+
+		}
+	case "bm_inode":
+		err = reports.ReportBMInode(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+
+		}
+	case "disk":
+		err = reports.ReportDisk(mountedMbr, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+
+		}
+	case "bm_block":
+		err = reports.ReportBMBlock(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+
+		}
+	case "sb":
+		err = reports.ReportSuperBlock(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+
+		}
+	case "block":
+		err = reports.ReportBlock(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+		}
+	case "tree":
+		err = reports.ReportTree(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return	 err
+		}
+
+	case "file":
+		err = reports.ReportFile(mountedSb, mountedDiskPath, rep.path, rep.path_file_ls)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+		}
+	case "ls":
+		err = reports.ReportLS(mountedSb, mountedDiskPath, rep.path, rep.path_file_ls)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return err
+		}
+
+	}
+
+	return nil
+}
+```
+
+#### MKDIR
+Crea un nuevo directorio (carpeta).  Es similar a MKFILE, pero para crear carpetas.  Recibe como parámetros la ruta de la carpeta y, opcionalmente, un indicador para crear las carpetas padre en la ruta.
+```go
+func commandMkdir(mkdir *MKDIR) error {
+	// Obtener la partición montada
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(IdPartition)
+	if err != nil {
+		return fmt.Errorf("error al obtener la partición montada: %w", err)
+	}
+
+	// Crear el directorio
+	err = createDirectory(mkdir.path, partitionSuperblock, partitionPath, mountedPartition)
+	if err != nil {
+		err = fmt.Errorf("error al crear el directorio: %w", err)
+	}
+
+	return err
+}
+```
+
+#### RMDISK
+Su función es eliminar un archivo que previamente fue creado para simular un disco duro.  El único parámetro necesario es la ruta del archivo que se desea eliminar.  Si el archivo no existe, el sistema debe mostrar un mensaje de error.  
+```go
+func commandRmdisk(rmdisk *RMDISK) error {
+
+	if _, err := os.Stat(rmdisk.path); os.IsNotExist(err) {
+		return fmt.Errorf("no existe el archivo %s", rmdisk.path)
+	}
+
+	// Intentar eliminar el archivo
+	err := os.Remove(rmdisk.path)
+	if err != nil {
+		return fmt.Errorf("error al eliminar el archivo %s: %v", rmdisk.path, err)
+	}
+
+	fmt.Printf("Disco %s eliminado exitosamente.\n", rmdisk.path)
+
+	return nil
+}
+```
+
+#### MOUNTED
+Este comando muestra un listado de todas las particiones que han sido montadas en la memoria del sistema.  Generalmente, muestra información como el ID de cada partición montada.  No recibe parámetros.  
+```go
+func commandMounted() (string, error){
+	if len(stores.ListMounted) == 0 {
+		return "", errors.New("no hay particiones montadas")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Particiones montadas:\n")
+	for _, path := range stores.ListMounted {
+		sb.WriteString(path)
+		sb.WriteString("\n")
+	}
+	return sb.String(), nil
+}
+```
+
+#### CAT
+Permite mostrar el contenido de uno o varios archivos.  Recibe como parámetro una lista de los archivos cuyo contenido se quiere mostrar.  Si un archivo no existe o el usuario no tiene permisos de lectura, se debe mostrar un mensaje de error.  
+```go
+func commandCat(paths []string) (string, error) {
+    salida := ""
+    _, mountedSb, mountedDiskPath, err := stores.GetMountedPartitionRep(IdPartition)
+    if err != nil {
+        return "", err
+    }
+
+    for _, path := range paths {
+		fmt.Println("Buscando path",path)
+
+
+		if !strings.HasPrefix(path, "/") {
+            path = "/" + path
+        }
+
+        inode, err := structures.FindInodeByPath(mountedSb, mountedDiskPath, path)
+        if err != nil {
+            return "", fmt.Errorf("error al buscar inodo: %v", err)
+        }
+
+		//Por si no se encontró el Inodo con el path
+		if inode==nil {
+			return "", fmt.Errorf("no se encontró el archivo")
+		}
+
+
+        if inode.I_type[0] != '1' {
+            return "", fmt.Errorf("'%s' no es un archivo", path)
+        }
+
+        content, err := structures.ReadFileContent(mountedSb, mountedDiskPath, inode)
+        if err != nil {
+            return "", fmt.Errorf("error al leer contenido: %v", err)
+        }
+
+		//Debugenado por si está vacio :)
+		if content=="" {
+			return "", fmt.Errorf("el archivo está vacío")
+		}
+
+        salida += fmt.Sprintf("%s\n", content) // Revisar después si me dan ganas que se vea bonito
+    }
+
+
+    return salida, nil
+}
+```
+
+#### LOGIN
+Se utiliza para iniciar una sesión en el sistema.  Los parámetros requeridos son el nombre de usuario, la contraseña y el ID de la partición en la que se desea iniciar sesión.  El sistema debe verificar que el usuario exista y que la contraseña sea correcta.  No se puede iniciar una nueva sesión sin cerrar la anterior.
+```go
+func commandLogin(login *LOGIN) error {
+	// Verificar si ya hay una sesión activa
+	if stores.Auth.IsAuthenticated() {
+		_, _, currentPartition := stores.Auth.GetCurrentUser()
+		if currentPartition == login.id {
+			return fmt.Errorf("ya hay una sesión activa en la partición '%s' para el usuario '%s'", login.id, stores.Auth.Username)
+		} else {
+			return fmt.Errorf("ya hay una sesión activa en otra partición ('%s'). Debes hacer 'logout' primero", currentPartition)
+		}
+	}
+
+	// Obtener la partición montada y el superbloque
+	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(login.id)
+	if err != nil {
+		_, exists := stores.MountedPartitions[login.id]
+		if !exists {
+			return fmt.Errorf("la partición con id '%s' no está montada", login.id)
+		}
+		return fmt.Errorf("error al obtener la partición montada '%s': %w", login.id, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return fmt.Errorf("la partición '%s' no tiene un sistema de archivos EXT2 válido (magic number incorrecto)", login.id)
+	}
+
+	// Leer /users.txt
+	fmt.Println("Buscando y leyendo /users.txt...")
+	_, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
+	if errFind != nil {
+		return fmt.Errorf("error crítico: no se pudo encontrar el archivo /users.txt: %w", errFind)
+	}
+	if usersInode.I_type[0] != '1' {
+		return errors.New("error crítico: /users.txt no es un archivo")
+	}
+
+	content, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
+	if errRead != nil {
+		return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
+	}
+	fmt.Println("Contenido leído de /users.txt.")
+
+	// Verificar si el contenido está vacío
+	lines := strings.Split(content, "\n")
+	foundUser := false
+	var storedPassword string
+
+	// Buscar el usuario en las líneas
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+
+		fields := strings.Split(trimmedLine, ",")
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		if len(fields) == 5 && fields[1] == "U" {
+			fileUsername := fields[3]
+			filePassword := fields[4]
+
+			if strings.EqualFold(fileUsername, login.user) {
+				foundUser = true
+				storedPassword = filePassword
+				fmt.Printf("Usuario '%s' encontrado.\n", login.user)
+				break
+			}
+		}
+	}
+
+	// Verificar si se encontró el usuario
+	if !foundUser {
+		return fmt.Errorf("el usuario '%s' no existe en la partición '%s'", login.user, login.id)
+	}
+
+	// Verificar la contraseña
+	fmt.Println("Verificando contraseña...")
+	if storedPassword != login.pass { // Comparación exacta (case-sensitive) para contraseñas
+		return fmt.Errorf("contraseña incorrecta para el usuario '%s'", login.user)
+	}
+
+	// Si la validación es exitosa, establecer el estado de autenticación
+	fmt.Println("Login exitoso.")
+	stores.Auth.Login(login.user, login.pass, login.id)
+
+	return nil
+}
+```
+
+#### LOGOUT
+Cierra la sesión activa del usuario.  No recibe parámetros.  Solo se puede ejecutar si hay una sesión activa. 
+```go
+func ParseLogout(tokens []string) (string, error) {
+	if len(tokens) != 0 {
+		return "", errors.New("el comando logout no acepta parámetros")
+	}
+	// Verifica si hay una sesión activa
+
+	if !stores.Auth.IsAuthenticated() {
+		return "", errors.New("no hay ninguna sesión activa")
+	}
+
+	// Cierra la sesión
+	stores.Auth.Logout()
+	return "Sesión terminada", nil
+}
+
+```
+
+#### MKGRP
+Crea un nuevo grupo de usuarios.  Este comando solo puede ser ejecutado por el usuario "root".  Recibe como parámetro el nombre del grupo a crear.  El nombre del grupo no puede existir previamente.
+```go
+// commandMkgrp contiene la lógica principal para crear el grupo
+func commandMkgrp(mkgrp *MKGRP) error {
+	// 1. Verificar Autenticación y Permisos (Root)
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando mkgrp requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	if currentUser != "root" {
+		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar mkgrp (usuario actual: %s)", currentUser)
+	}
+
+	// 2. Obtener Partición y Superbloque
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido en superbloque")
+	}
+
+	// 3. Encontrar y Leer Inodo/Contenido de /users.txt
+	fmt.Println("Buscando inodo para /users.txt...")
+	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
+	if errFind != nil {
+		return fmt.Errorf("error crítico: no se pudo encontrar el archivo /users.txt: %w", errFind)
+	}
+	if usersInode.I_type[0] != '1' {
+		return errors.New("error crítico: /users.txt no es un archivo")
+	}
+
+	fmt.Println("Leyendo contenido actual de /users.txt...")
+	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
+	if errRead != nil {
+		// Si ReadFileContent retorna "" para archivo vacío, esto está bien.
+		// Si retorna error, lo manejamos.
+		if oldContent != "" { // Solo retornar error si no pudimos leer nada y hubo error
+			return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
+		}
+		fmt.Println("Advertencia: /users.txt parece vacío o hubo un error menor al leer. Continuando...")
+		oldContent = "" // Asegurar que sea un string vacío si hubo error menor o estaba vacío
+	}
+	// Asegurar que el contenido termine con un salto de línea para anexar fácilmente
+	if oldContent != "" && !strings.HasSuffix(oldContent, "\n") {
+		oldContent += "\n"
+	}
+
+	// 4. Parsear Contenido, Validar Grupo Existente y Obtener Nuevo GID
+	fmt.Println("Validando nombre de grupo y buscando GID disponible...")
+	lines := strings.Split(oldContent, "\n")
+	highestGID := int32(0) // Asumimos que GID 0 no se usa, root es 1
+
+	for _, line := range lines {
+		if len(strings.TrimSpace(line)) == 0 {
+			continue
+		} // Ignorar líneas vacías
+
+		fields := strings.Split(line, ",")
+		if len(fields) < 3 {
+			continue
+		} // Línea mal formada
+
+		// Limpiar espacios
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		// Verificar si es línea de grupo y si el nombre ya existe
+		if fields[1] == "G" {
+			if strings.EqualFold(fields[2], mkgrp.name) {
+				return fmt.Errorf("el grupo '%s' ya existe", mkgrp.name)
+			}
+			// Rastrear GID más alto
+			gid64, errConv := strconv.ParseInt(fields[0], 10, 32)
+			if errConv == nil {
+				gid := int32(gid64)
+				if gid > highestGID {
+					highestGID = gid
+				}
+			}
+		}
+	}
+	newGID := highestGID + 1
+	fmt.Printf("Nuevo GID asignado: %d\n", newGID)
+
+	// Preparar Nuevo Contenido
+	newLine := fmt.Sprintf("%d,G,%s\n", newGID, mkgrp.name)
+	newContent := oldContent + newLine
+	newSize := int32(len(newContent))
+
+	// Liberar Bloques Antiguos de users.txt
+	fmt.Println("Liberando bloques antiguos de /users.txt...")
+	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
+	if errFree != nil {
+		// Es importante loguear esto pero intentamos continuar si es posible
+		fmt.Printf("Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
+		// return fmt.Errorf("error liberando bloques antiguos: %w", errFree) // Opcional: Fallar aquí
+	} else {
+		fmt.Println("Bloques antiguos liberados.")
+	}
+
+	// Asignar Nuevos Bloques para el nuevo contenido
+	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
+	var newAllocatedBlockIndices [15]int32
+	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
+	}
+
+	// Actualizar Inodo de users.txt
+	fmt.Println("Actualizando inodo /users.txt...")
+	usersInode.I_size = newSize
+	usersInode.I_mtime = float32(time.Now().Unix())
+	usersInode.I_atime = usersInode.I_mtime
+	usersInode.I_block = newAllocatedBlockIndices // Actualizar con los nuevos bloques
+
+	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
+	err = usersInode.Serialize(partitionPath, usersInodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de MKGRP...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar el superbloque después de mkgrp: %w", err)
+	}
+
+	return nil // Éxito
+}
+```
+
+#### RMGRP
+Elimina un grupo de usuarios existente.  Solo puede ser ejecutado por el usuario "root".  Recibe como parámetro el nombre del grupo a eliminar.  Si el grupo no existe, se debe mostrar un mensaje de error. 
+```go
+// commandRmgrp contiene la lógica principal para eliminar el grupo
+func commandRmgrp(rmgrp *RMGRP) error {
+	// Verificar Permisos
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando rmgrp requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	if currentUser != "root" {
+		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar rmgrp (usuario actual: %s)", currentUser)
+	}
+
+	// Obtener Partición y Superbloque
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido en superbloque")
+	}
+
+	// Encontrar y Leer Inodo/Contenido de /users.txt
+	fmt.Println("Buscando inodo para /users.txt...")
+	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
+	if errFind != nil {
+		return fmt.Errorf("error crítico: no se pudo encontrar el archivo /users.txt: %w", errFind)
+	}
+	if usersInode.I_type[0] != '1' {
+		return errors.New("error crítico: /users.txt no es un archivo")
+	}
+
+	fmt.Println("Leyendo contenido actual de /users.txt...")
+	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
+	// Retorna error si falla la lectura de bloques.
+	if errRead != nil {
+		return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
+	}
+
+	// Parsear Contenido y Validar Grupo a Eliminar
+	fmt.Printf("Buscando grupo '%s' para eliminar...\n", rmgrp.name)
+	lines := strings.Split(oldContent, "\n")
+	newLines := []string{} // Slice para guardar las líneas que SÍ queremos mantener
+	foundGroup := false
+
+	if strings.EqualFold(rmgrp.name, "root") {
+		return errors.New("error: el grupo 'root' no puede ser eliminado")
+	}
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+
+		fields := strings.Split(trimmedLine, ",")
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		if len(fields) >= 3 && fields[1] == "G" && strings.EqualFold(fields[2], rmgrp.name) {
+			fmt.Printf("Grupo '%s' encontrado (línea: '%s'). Marcado para eliminación.\n", rmgrp.name, line)
+			foundGroup = true
+		} else {
+			newLines = append(newLines, line) 
+		}
+	}
+
+	// Verificar si se encontró el grupo
+	if !foundGroup {
+		return fmt.Errorf("error: el grupo '%s' no fue encontrado", rmgrp.name)
+	}
+
+
+	// Preparar Nuevo Contenido Final
+	newContent := strings.Join(newLines, "\n")
+	// Añadir un salto de línea final
+	if newContent != "" && !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	newSize := int32(len(newContent))
+	fmt.Printf("Nuevo contenido de users.txt preparado (%d bytes).\n", newSize)
+
+	// Liberar Bloques Antiguos de users.txt
+	fmt.Println("Liberando bloques antiguos de /users.txt...")
+	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
+	if errFree != nil {
+		fmt.Printf("ADVERTENCIA: Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
+		return fmt.Errorf("error liberando bloques antiguos: %w", errFree)
+	} else {
+		fmt.Println("Bloques antiguos liberados.")
+	}
+
+	// Asignar Nuevos Bloques para el nuevo contenido
+	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
+	var newAllocatedBlockIndices [15]int32
+	// Usar allocateDataBlocks existente
+	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
+	}
+
+	// Actualizar Inodo de users.txt
+	fmt.Println("Actualizando inodo /users.txt...")
+	usersInode.I_size = newSize                     // Actualizar tamaño
+	usersInode.I_mtime = float32(time.Now().Unix()) // Actualizar tiempo de modificación
+	usersInode.I_atime = usersInode.I_mtime         // Actualizar tiempo de acceso
+	usersInode.I_block = newAllocatedBlockIndices   // Actualizar lista de bloques
+
+	// Serializar el inodo actualizado
+	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
+	err = usersInode.Serialize(partitionPath, usersInodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de RMGRP...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar el superbloque después de rmgrp: %w", err)
+	}
+
+	return nil
+}
+```
+
+#### MKUSR
+Crea un nuevo usuario.  Solo puede ser ejecutado por el usuario "root".  Los parámetros necesarios son el nombre de usuario, la contraseña y el grupo al que pertenecerá el usuario.  El nombre de usuario no puede existir previamente y el grupo debe existir.  
+```go
+// commandMkusr contiene la lógica principal para crear el usuario
+func commandMkusr(mkusr *MKUSR) error {
+	//Verificar Permisos
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando mkusr requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	if currentUser != "root" {
+		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar mkusr (usuario actual: %s)", currentUser)
+	}
+
+	// Obtener Partición y Superbloque
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido en superbloque")
+	}
+
+	// Encontrar y Leer Inodo/Contenido de /users.txt
+	fmt.Println("Buscando inodo para /users.txt...")
+	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
+	if errFind != nil {
+		return fmt.Errorf("error crítico: no se pudo encontrar el archivo /users.txt: %w", errFind)
+	}
+	if usersInode.I_type[0] != '1' {
+		return errors.New("error crítico: /users.txt no es un archivo")
+	}
+
+	fmt.Println("Leyendo contenido actual de /users.txt...")
+	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
+	if errRead != nil && oldContent == "" {
+		return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
+	}
+	if oldContent != "" && !strings.HasSuffix(oldContent, "\n") {
+		oldContent += "\n"
+	}
+
+	// Parsear Contenido
+	fmt.Printf("Validando usuario '%s' y grupo '%s'...\n", mkusr.user, mkusr.grp)
+	lines := strings.Split(oldContent, "\n")
+	highestID := int32(0)
+	userExists := false
+	groupExists := false
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+
+		fields := strings.Split(trimmedLine, ",")
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		if len(fields) < 3 {
+			continue
+		} // Formato mínimo: id,type,name
+
+		// Rastrear ID más alto
+		id64, errConv := strconv.ParseInt(fields[0], 10, 32)
+		if errConv == nil {
+			id := int32(id64)
+			if id > highestID {
+				highestID = id
+			}
+		}
+
+		// Verificar si el usuario ya existe
+        if len(fields) == 5 && fields[1] == "U" && strings.EqualFold(fields[3], mkusr.user) { // <-- CORRECTO: Usa índice 3 y verifica longitud 5
+            userExists = true
+        }
+
+		// Verificar si el grupo existe y obtener su GID
+		if fields[1] == "G" && strings.EqualFold(fields[2], mkusr.grp) {
+			groupExists = true
+		}
+	}
+
+	if userExists {
+		return fmt.Errorf("error: el usuario '%s' ya existe", mkusr.user)
+	}
+	if !groupExists {
+		return fmt.Errorf("error: el grupo '%s' no existe", mkusr.grp)
+	}
+
+	newUID := highestID + 1
+	fmt.Printf("Nuevo UID asignado: %d. Pertenecerá al grupo '%s'.\n", newUID, mkusr.grp)
+
+	// Preparar Nuevo Contenido
+	newLine := fmt.Sprintf("%d,U,%s,%s,%s\n", newUID, mkusr.grp, mkusr.user, mkusr.pass) // Usa mkusr.grp (nombre)
+	newContent := oldContent + newLine
+	newSize := int32(len(newContent))
+	fmt.Printf("Nuevo contenido de users.txt preparado (%d bytes).\n", newSize)
+
+	// Liberar Bloques Antiguos de users.txt
+	fmt.Println("Liberando bloques antiguos de /users.txt...")
+	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
+	if errFree != nil {
+		fmt.Printf("ADVERTENCIA: Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
+		return fmt.Errorf("error liberando bloques antiguos: %w", errFree)
+	} else {
+		fmt.Println("Bloques antiguos liberados.")
+	}
+
+	// Asignar Nuevos Bloques para el nuevo contenido
+	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
+	var newAllocatedBlockIndices [15]int32
+	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
+	}
+
+	// Actualizar Inodo de users.txt
+	fmt.Println("Actualizando inodo /users.txt...")
+	usersInode.I_size = newSize
+	usersInode.I_mtime = float32(time.Now().Unix())
+	usersInode.I_atime = usersInode.I_mtime
+	usersInode.I_block = newAllocatedBlockIndices
+
+	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
+	err = usersInode.Serialize(partitionPath, usersInodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de MKUSR...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar el superbloque después de mkusr: %w", err)
+	}
+
+	return nil
+}
+```
+
+#### RMUSR
+Elimina un usuario existente.  Solo puede ser ejecutado por el usuario "root".  Recibe como parámetro el nombre del usuario a eliminar.  Si el usuario no existe, se debe mostrar un mensaje de error.  
+```go
+func commandRmusr(rmusr *RMUSR) error {
+	// Verificar Permisos (Root)
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando rmusr requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	if currentUser != "root" {
+		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar rmusr (usuario actual: %s)", currentUser)
+	}
+
+	// No permitir eliminar el usuario root
+	if strings.EqualFold(rmusr.user, "root") {
+		return errors.New("error: el usuario 'root' no puede ser eliminado")
+	}
+	// No permitir eliminar al usuario actualmente logueado
+	if strings.EqualFold(rmusr.user, currentUser) && currentUser != "root" {
+		return fmt.Errorf("error: no puedes eliminar al usuario '%s' mientras está logueado", currentUser)
+	}
+
+	// Obtener Partición y Superbloque
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido en superbloque")
+	}
+
+	// Encontrar y Leer Inodo/Contenido de /users.txt
+	fmt.Println("Buscando inodo para /users.txt...")
+	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
+	if errFind != nil {
+		return fmt.Errorf("error crítico: no se pudo encontrar el archivo /users.txt: %w", errFind)
+	}
+	if usersInode.I_type[0] != '1' {
+		return errors.New("error crítico: /users.txt no es un archivo")
+	}
+
+	fmt.Println("Leyendo contenido actual de /users.txt...")
+	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
+	if errRead != nil {
+		return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
+	}
+
+	// Parsear Contenido y Validar Usuario a Eliminar
+	fmt.Printf("Buscando usuario '%s' para eliminar...\n", rmusr.user)
+	lines := strings.Split(oldContent, "\n")
+	newLines := []string{}
+	foundUser := false
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+
+		fields := strings.Split(trimmedLine, ",")
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		if len(fields) >= 4 && fields[1] == "U" && strings.EqualFold(fields[3], rmusr.user) { // <-- Cambiado fields[2] a fields[3]
+			fmt.Printf("Usuario '%s' encontrado (línea: '%s'). Marcado para eliminación.\n", rmusr.user, line)
+			foundUser = true
+		} else {
+			// Conservar la línea original
+			newLines = append(newLines, line)
+		}
+	}
+	// Verificar si se encontró el usuario
+	if !foundUser {
+		return fmt.Errorf("error: el usuario '%s' no fue encontrado", rmusr.user)
+	}
+
+	// Preparar Nuevo Contenido Final
+	newContent := strings.Join(newLines, "\n")
+	if newContent != "" && !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	newSize := int32(len(newContent))
+	fmt.Printf("Nuevo contenido de users.txt preparado (%d bytes).\n", newSize)
+
+	// Liberar Bloques Antiguos de users.txt
+	fmt.Println("Liberando bloques antiguos de /users.txt...")
+	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
+	if errFree != nil {
+		fmt.Printf("ADVERTENCIA: Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
+		return fmt.Errorf("error liberando bloques antiguos: %w", errFree)
+	} else {
+		fmt.Println("Bloques antiguos liberados.")
+	}
+
+	// Asignar Nuevos Bloques para el nuevo contenido
+	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
+	var newAllocatedBlockIndices [15]int32
+	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
+	}
+
+	// Actualizar Inodo de users.txt
+	fmt.Println("Actualizando inodo /users.txt...")
+	usersInode.I_size = newSize
+	usersInode.I_mtime = float32(time.Now().Unix())
+	usersInode.I_atime = usersInode.I_mtime
+	usersInode.I_block = newAllocatedBlockIndices
+
+	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
+	err = usersInode.Serialize(partitionPath, usersInodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de RMUSR...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar el superbloque después de rmusr: %w", err)
+	}
+
+	return nil // Éxito
+}
+```
+
+#### CHGRP
+Cambia el grupo al que pertenece un usuario.  Solo puede ser ejecutado por el usuario "root".  Los parámetros son el nombre del usuario y el nombre del nuevo grupo.  El usuario y el grupo deben existir.
+```go
+func commandChgrp(chgrp *CHGRP) error {
+	// Verificar Permisos 
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando chgrp requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	if currentUser != "root" {
+		return fmt.Errorf("permiso denegado: solo 'root' puede ejecutar chgrp (actual: %s)", currentUser)
+	}
+
+	// Obtener Partición y Superbloque
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error al obtener partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño inválido de inodo/bloque en superbloque")
+	}
+
+	//Encontrar y Leer /users.txt
+	fmt.Println("Buscando inodo para /users.txt...")
+	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
+	if errFind != nil {
+		return fmt.Errorf("error crítico: no se pudo encontrar /users.txt: %w", errFind)
+	}
+	if usersInode.I_type[0] != '1' {
+		return errors.New("error crítico: /users.txt no es un archivo")
+	}
+
+	fmt.Println("Leyendo contenido actual de /users.txt...")
+	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
+	if errRead != nil && oldContent == "" {
+		return fmt.Errorf("error leyendo /users.txt: %w", errRead)
+	}
+	if oldContent != "" && !strings.HasSuffix(oldContent, "\n") {
+		oldContent += "\n"
+	}
+
+	// Parsear Contenido y Validaciones
+	fmt.Printf("Validando usuario '%s' y nuevo grupo '%s'...\n", chgrp.user, chgrp.grp)
+	lines := strings.Split(oldContent, "\n")
+	newLines := make([]string, 0, len(lines)) // Slice para reconstruir el archivo
+	userFound := false
+	groupFound := false
+	userLineModified := false // bandera para saber si modificamos la línea del usuario
+
+	// Validar que el nuevo grupo exista
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+		fields := strings.Split(trimmedLine, ",")
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+		if len(fields) == 3 && fields[1] == "G" && strings.EqualFold(fields[2], chgrp.grp) {
+			groupFound = true
+			break
+		}
+	}
+	if !groupFound {
+		return fmt.Errorf("error: el nuevo grupo '%s' no existe", chgrp.grp)
+	}
+	fmt.Printf("Grupo '%s' encontrado y válido.\n", chgrp.grp)
+
+	// Encontrar usuario y reconstruir archivo
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+
+		fields := strings.Split(trimmedLine, ",")
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		// Verificar si es la línea del usuario a modificar
+		if len(fields) == 5 && fields[1] == "U" && strings.EqualFold(fields[3], chgrp.user) {
+			userFound = true
+			// Modificar la línea cambiando el nombre del grupo
+			modifiedLine := fmt.Sprintf("%s,U,%s,%s,%s", fields[0], chgrp.grp, fields[3], fields[4])
+			newLines = append(newLines, modifiedLine)
+			userLineModified = true
+			fmt.Printf("Línea del usuario '%s' modificada a: %s\n", chgrp.user, modifiedLine)
+		} else {
+			// Conservar la línea original
+			newLines = append(newLines, line)
+		}
+	}
+
+	// Valida si se encontró al usuario
+	if !userFound {
+		return fmt.Errorf("error: el usuario '%s' no fue encontrado", chgrp.user)
+	}
+	if !userLineModified {
+		return errors.New("error interno: se encontró el usuario pero no se modificó la línea")
+	}
+
+	// Preparar Nuevo Contenido Final
+	newContent := strings.Join(newLines, "\n")
+	if newContent != "" && !strings.HasSuffix(newContent, "\n") {
+		newContent += "\n"
+	}
+	newSize := int32(len(newContent))
+	fmt.Printf("Nuevo contenido de users.txt preparado (%d bytes).\n", newSize)
+
+	// Libera Bloques Antiguos de users.txt
+	fmt.Println("Liberando bloques antiguos de /users.txt...")
+	errFree := structures.FreeInodeBlocks(usersInode, partitionSuperblock, partitionPath)
+	if errFree != nil {
+		fmt.Printf("ADVERTENCIA: Error al liberar bloques: %v\n", errFree)
+	} else {
+		fmt.Println("Bloques antiguos liberados.")
+	}
+
+	// Asignar Nuevos Bloques para el nuevo contenido
+	fmt.Printf("Asignando bloques para nuevo tamaño (%d bytes)...\n", newSize)
+	var newAllocatedBlockIndices [15]int32
+	newAllocatedBlockIndices, err = allocateDataBlocks([]byte(newContent), newSize, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("falló la re-asignación de bloques para /users.txt: %w", err)
+	}
+
+	// Actualizar Inodo de users.txt
+	fmt.Println("Actualizando inodo /users.txt...")
+	usersInode.I_size = newSize
+	usersInode.I_mtime = float32(time.Now().Unix())
+	usersInode.I_atime = usersInode.I_mtime
+	usersInode.I_block = newAllocatedBlockIndices
+
+	usersInodeOffset := int64(partitionSuperblock.S_inode_start) + int64(usersInodeIndex)*int64(partitionSuperblock.S_inode_size)
+	err = usersInode.Serialize(partitionPath, usersInodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de CHGRP...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar el superbloque después de chgrp: %w", err)
+	}
+
+	return nil // Éxito
+}
+
+```
+
+#### MKFILE
+Este comando permite crear un nuevo archivo.  El usuario que ejecuta el comando se convierte en el propietario del archivo.  Los parámetros incluyen la ruta del archivo, y opcionalmente, un indicador para crear las carpetas padre en la ruta, el tamaño del archivo y la ruta de un archivo existente para copiar su contenido. 
+```go
+// commandMkfile contiene la lógica principal para crear el archivo
+func commandMkfile(mkfile *MKFILE) error {
+	//Obtener Autenticación y Partición Montada
+	var userID int32 = 1 
+	var groupID int32 = 1 
+	var partitionID string
+
+	if stores.Auth.IsAuthenticated() {
+		partitionID = stores.Auth.GetPartitionID()
+		fmt.Printf("Usuario autenticado: %s (Usando UID=1, GID=1 por defecto)\n", stores.Auth.Username)
+	} else {
+		return errors.New("no se ha iniciado sesión en ninguna partición")
+	}
+
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
+	}
+
+	// Validar tamaños para división por cero
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return fmt.Errorf("tamaño de inodo o bloque inválido en superbloque: inode=%d, block=%d", partitionSuperblock.S_inode_size, partitionSuperblock.S_block_size)
+	}
+
+	// Limpiar Path y Obtener Padre/Nombre
+	cleanPath := strings.TrimSuffix(mkfile.path, "/")
+	if !strings.HasPrefix(cleanPath, "/") {
+		return errors.New("el path debe ser absoluto (empezar con /)")
+	}
+	if cleanPath == "/" {
+		return errors.New("no se puede crear archivo en la raíz '/' con este comando")
+	}
+	if cleanPath == "" {
+		return errors.New("el path no puede estar vacío")
+	}
+
+	parentPath := filepath.Dir(cleanPath)
+	fileName := filepath.Base(cleanPath)
+	if fileName == "" || fileName == "." || fileName == ".." {
+		return fmt.Errorf("nombre de archivo inválido: %s", fileName)
+	}
+	if len(fileName) > 12 {
+		return fmt.Errorf("el nombre del archivo '%s' excede los 12 caracteres permitidos", fileName)
+	}
+
+	// Asegurar que el nombre no contenga caracteres inválidos
+	fmt.Printf("Asegurando directorio padre: %s\n", parentPath)
+	parentInodeIndex, parentInode, err := ensureParentDirExists(parentPath, mkfile.r, partitionSuperblock, partitionPath)
+	if err != nil {
+		return err 
+	}
+
+	fmt.Printf("Verificando si '%s' ya existe en inodo %d...\n", fileName, parentInodeIndex)
+	exists, _, existingInodeType := findEntryInParent(parentInode, fileName, partitionSuperblock, partitionPath)
+	if exists {
+		existingTypeStr := "elemento"
+		if existingInodeType == '0' {
+			existingTypeStr = "directorio"
+		}
+		if existingInodeType == '1' {
+			existingTypeStr = "archivo"
+		}
+		return fmt.Errorf("error: el %s '%s' ya existe en '%s'", existingTypeStr, fileName, parentPath)
+	}
+
+	// Determinar Contenido y Tamaño
+	var contentBytes []byte
+	var fileSize int32
+
+	if mkfile.cont != "" {
+		fmt.Printf("Leyendo contenido desde archivo local: %s\n", mkfile.cont)
+		hostContent, errRead := os.ReadFile(mkfile.cont)
+		if errRead != nil {
+			return fmt.Errorf("error leyendo archivo de contenido '%s': %w", mkfile.cont, errRead)
+		}
+		contentBytes = hostContent
+		fileSize = int32(len(contentBytes))
+	} else {
+		fileSize = int32(mkfile.size)
+		if fileSize > 0 {
+			fmt.Printf("Generando contenido de %d bytes (0-9 repetido)...\n", fileSize)
+			contentBuilder := strings.Builder{}
+			for i := int32(0); i < fileSize; i++ {
+				contentBuilder.WriteByte(byte('0' + (i % 10)))
+			}
+			contentBytes = []byte(contentBuilder.String())
+		} else {
+			contentBytes = []byte{}
+		}
+	}
+	fmt.Printf("Tamaño final del archivo: %d bytes\n", fileSize)
+
+	// Calcular bloques necesarios 
+	blockSize := partitionSuperblock.S_block_size
+	numBlocksNeeded := int32(0)
+	if fileSize > 0 {
+		numBlocksNeeded = (fileSize + blockSize - 1) / blockSize
+	}
+
+	// Asignar Bloques de Datos y Punteros
+	fmt.Printf("Asignando %d bloque(s) de datos y punteros necesarios...\n", numBlocksNeeded)
+	var allocatedBlockIndices [15]int32
+	allocatedBlockIndices, err = allocateDataBlocks(contentBytes, fileSize, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("falló la asignación de bloques: %w", err)
+	}
+
+	// Asignar Inodo
+	fmt.Println("Asignando inodo...")
+	newInodeIndex := (partitionSuperblock.S_first_ino - partitionSuperblock.S_inode_start) / partitionSuperblock.S_inode_size
+	err = partitionSuperblock.UpdateBitmapInode(partitionPath, newInodeIndex)
+	if err != nil {
+		return fmt.Errorf("error actualizando bitmap para inodo %d: %w", newInodeIndex, err)
+	}
+	partitionSuperblock.S_free_inodes_count--
+	partitionSuperblock.S_first_ino += partitionSuperblock.S_inode_size
+
+	// Crear y Serializar Estructura Inodo
+	currentTime := float32(time.Now().Unix())
+	newInode := &structures.Inode{
+		I_uid: userID, I_gid: groupID, I_size: fileSize,
+		I_atime: currentTime, I_ctime: currentTime, I_mtime: currentTime,
+		I_type: [1]byte{'1'}, I_perm: [3]byte{'6', '6', '4'},
+	}
+	newInode.I_block = allocatedBlockIndices
+
+	inodeOffset := int64(partitionSuperblock.S_inode_start) + int64(newInodeIndex)*int64(partitionSuperblock.S_inode_size)
+	err = newInode.Serialize(partitionPath, inodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando nuevo inodo %d: %w", newInodeIndex, err)
+	}
+
+	// Añadir Entrada al Directorio Padre
+	fmt.Printf("Añadiendo entrada '%s' al directorio padre (inodo %d)...\n", fileName, parentInodeIndex)
+	err = addEntryToParent(parentInodeIndex, fileName, newInodeIndex, partitionSuperblock, partitionPath)
+	if err != nil {
+		return fmt.Errorf("error añadiendo entrada '%s' al directorio padre: %w", fileName, err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("\nSerializando SuperBlock después de MKFILE...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar el superbloque después de mkfile: %w", err)
+	}
+	return nil
+}
+```
