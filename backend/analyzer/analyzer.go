@@ -73,6 +73,8 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseRemove(arguments)
 	case "edit":
 		return commands.ParseEdit(arguments)
+	case "rename":
+		return commands.ParseRename(arguments)
 
 	default:
 
