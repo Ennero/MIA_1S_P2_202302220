@@ -71,6 +71,8 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseUnmount(arguments)
 	case "remove":
 		return commands.ParseRemove(arguments)
+	case "edit":
+		return commands.ParseEdit(arguments)
 
 	default:
 
