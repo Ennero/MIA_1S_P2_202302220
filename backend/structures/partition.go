@@ -1,7 +1,5 @@
 package structures
 
-import "fmt"
-
 type Partition struct {
 	Part_status      [1]byte  // Estado de la partición
 	Part_type        [1]byte  // Tipo de partición
@@ -59,7 +57,7 @@ func (p *Partition) MountPartition(correlative int, id string) error {
 
 	return nil
 }
-
+/*
 // Imprimir los valores de la partición
 func (p *Partition) PrintPartition() {
 	fmt.Printf("Part_status: %c\n", p.Part_status[0])
@@ -71,3 +69,4 @@ func (p *Partition) PrintPartition() {
 	fmt.Printf("Part_correlative: %d\n", p.Part_correlative)
 	fmt.Printf("Part_id: %s\n", string(p.Part_id[:]))
 }
+*/

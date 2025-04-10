@@ -18,11 +18,6 @@ type MOUNT struct {
 	name string // Nombre de la partición
 }
 
-/*
-	mount -path=/home/Disco1.mia -name=Part1 #id=341a
-	mount -path=/home/Disco2.mia -name=Part1 #id=342a
-	mount -path=/home/Disco3.mia -name=Part2 #id=343a
-*/
 
 // CommandMount parsea el comando mount y devuelve una instancia de MOUNT
 func ParseMount(tokens []string) (string, error) {
@@ -98,71 +93,78 @@ func ParseMount(tokens []string) (string, error) {
 		cmd.path, cmd.name, lastElement), nil
 }
 
+
 func commandMount(mount *MOUNT) error {
-	// Crear una instancia de MBR
 	var mbr structures.MBR
 
 	// Deserializar la estructura MBR desde un archivo binario
 	err := mbr.Deserialize(mount.path)
 	if err != nil {
-		fmt.Println("Error deserializando el MBR:", err)
-		return err
+		// Añadir más contexto al error
+		return fmt.Errorf("error leyendo MBR del disco '%s': %w", mount.path, err)
 	}
 
-	// Buscar la partición con el nombre especificado
-	partition, indexPartition := mbr.GetPartitionByName(mount.name)
-	if partition == nil {
-		fmt.Println("Error: la partición no existe")
-		return errors.New("la partición no existe")
+	// --- INICIO CORRECCIÓN ---
+	// Buscar la partición con el nombre especificado, capturando el error
+	partition, _, errFind := mbr.GetPartitionByName(mount.name) // <-- Recibe 3 valores
+
+	// Verificar el error devuelto por GetPartitionByName
+	if errFind != nil {
+		// El error ya indica que no se encontró o hubo otro problema
+		fmt.Printf("Error buscando partición '%s': %v\n", mount.name, errFind)
+		return errFind // Devolver el error específico
 	}
 
 	/* SOLO PARA VERIFICACIÓN */
 	// Print para verificar que la partición se encontró correctamente
-	fmt.Println("\nPartición disponible:")
-	partition.PrintPartition()
+	fmt.Println("\nPartición encontrada para montar:")
+	partition.PrintPartition() // Usar el partition encontrado
 
-	//Aquí verifico si no se montó antes
-	for _, valor:= range stores.ListPatitions{
-		if valor == mount.name{
-			fmt.Println("Error: la partición ya está montada")
-			return errors.New("la partición ya está montada")
+	for _, valor := range stores.ListPatitions { 
+		if valor == mount.name {
+			fmt.Printf("Advertencia: Ya existe una partición montada con el nombre '%s' (puede ser de otro disco).\n", mount.name)
+            return fmt.Errorf("ya existe una partición montada con el nombre '%s'", mount.name)
 		}
 	}
 
 	// Generar un id único para la partición
-	idPartition, partitionCorrelative, err := generatePartitionID(mount)
-	if err != nil {
-		fmt.Println("Error generando el id de partición:", err)
-		return err
+	idPartition, partitionCorrelative, errGenID := generatePartitionID(mount)
+	if errGenID != nil {
+		fmt.Println("Error generando el id de partición:", errGenID)
+		return errGenID
 	}
+	fmt.Printf("ID de montaje generado: %s (Correlativo: %d)\n", idPartition, partitionCorrelative)
 
 
-
-	//  Guardar la partición montada en la lista de montajes globales
+	// Guardar la partición montada en la lista de montajes globales
 	stores.MountedPartitions[idPartition] = mount.path
-	stores.ListPatitions = append(stores.ListPatitions, mount.name)
+	stores.ListPatitions = append(stores.ListPatitions, mount.name) // ¿Realmente necesario guardar solo nombre?
 	stores.ListMounted = append(stores.ListMounted, idPartition)
+	fmt.Printf("Partición añadida a stores. Montadas ahora: %v\n", stores.ListMounted)
 
-	// Modificamos la partición para indicar que está montada
-	partition.MountPartition(partitionCorrelative, idPartition)
+
+	partition.MountPartition(partitionCorrelative, idPartition) // Asumiendo que MountPartition existe en Partition
 
 	/* SOLO PARA VERIFICACIÓN */
-	// Print para verificar que la partición se haya montado correctamente
-	fmt.Println("\nPartición montada (modificada):")
+	fmt.Println("\nPartición marcada como montada (en memoria MBR):")
 	partition.PrintPartition()
 
-	// Guardar la partición modificada en el MBR
-	mbr.Mbr_partitions[indexPartition] = *partition
 
-	// Serializar la estructura MBR en el archivo binario
+	// Serializar la estructura MBR completa (con la partición modificada)
+	fmt.Println("Serializando MBR con estado de montaje actualizado...")
 	err = mbr.Serialize(mount.path)
 	if err != nil {
+		// Si falla la serialización, el estado de montaje no se guarda en disco
+		// Podríamos intentar revertir los cambios en 'stores'? Complicado.
 		fmt.Println("Error serializando el MBR:", err)
-		return err
+		return fmt.Errorf("error serializando MBR con estado de montaje: %w", err)
 	}
 
+	fmt.Println("Montaje completado y MBR guardado.")
 	return nil
 }
+
+
 
 func generatePartitionID(mount *MOUNT) (string, int, error) {
 	// Asignar una letra a la partición y obtener el índice
