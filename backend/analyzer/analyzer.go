@@ -2,8 +2,8 @@ package analyzer
 
 import (
 	commands "backend/commands"
-	"fmt"    
-	"strings" 
+	"fmt"
+	"strings"
 )
 
 func Analyzer(input string) (string, error) {
@@ -16,7 +16,7 @@ func Analyzer(input string) (string, error) {
 		return "", nil
 	}
 	if strings.HasPrefix(trimmedInput, "#") {
-        fmt.Printf("Comentario ignorado: %s\n", trimmedInput)
+		fmt.Printf("Comentario ignorado: %s\n", trimmedInput)
 		return "", nil
 	}
 
@@ -24,12 +24,12 @@ func Analyzer(input string) (string, error) {
 	tokens := strings.Fields(trimmedInput)
 
 	if len(tokens) == 0 {
-		return "", nil 
+		return "", nil
 	}
 
-	// Procesar el comando 
+	// Procesar el comando
 	command := strings.ToLower(tokens[0]) // Convertir comando a minúsculas
-	arguments := tokens[1:]  
+	arguments := tokens[1:]
 
 	// Switch para manejar comandos conocidos
 	switch command {
@@ -67,6 +67,10 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseRmusr(arguments)
 	case "chgrp":
 		return commands.ParseChgrp(arguments)
+	case "unmount":
+		return commands.ParseUnmount(arguments)
+	case "remove":
+		return commands.ParseRemove(arguments)
 
 	default:
 

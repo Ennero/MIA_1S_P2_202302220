@@ -605,18 +605,18 @@ func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {
 
 // --- NUEVAS FUNCIONES ---
 
-// deletePartition: Lógica para eliminar una partición
+// Lógica para eliminar una partición
 func deletePartition(cmd *FDISK) error {
 	fmt.Printf("Intentando eliminar partición: Path='%s', Nombre='%s', Modo='%s'\n", cmd.path, cmd.name, cmd.delete)
 
-	// 1. Leer MBR
+	// Leer MBR
 	var mbr structures.MBR
 	if err := mbr.Deserialize(cmd.path); err != nil {
 		return fmt.Errorf("error leyendo MBR: %w", err)
 	}
-	mbr.PrintPartitions() // Debug
+	mbr.PrintPartitions()
 
-	// 2. Buscar la partición por nombre (Primaria o Extendida)
+	// Buscar la partición por nombre (Primaria o Extendida)
 	targetPartition := -1
 	var partitionInfo structures.Partition
 	for i := range mbr.Mbr_partitions {
@@ -630,7 +630,7 @@ func deletePartition(cmd *FDISK) error {
 		}
 	}
 
-	// 3. Si no se encontró en MBR, buscar en Lógicas (dentro de la Extendida)
+	// Si no se encontró en MBR, buscar en Lógicas (dentro de la Extendida)
 	var targetEbrPosition int64 = -1
 	var prevEbrPosition int64 = -1
 	var ebrToDelete structures.EBR
@@ -665,7 +665,7 @@ func deletePartition(cmd *FDISK) error {
 
 			name := strings.TrimRight(string(currentEBR.Part_name[:]), "\x00")
 			if currentEBR.Part_status[0] != 'N' && name == cmd.name {
-				// Encontrada!
+				// Encontrada
 				fmt.Printf("Partición Lógica '%s' encontrada en EBR en offset %d\n", cmd.name, currentPos)
 				targetEbrPosition = currentPos
 				prevEbrPosition = prevPos // Guardar la posición del EBR anterior
@@ -683,44 +683,40 @@ func deletePartition(cmd *FDISK) error {
 			prevPos = currentPos
 			currentPos = int64(currentEBR.Part_next)
 		}
-		// file se cierra por defer al salir de la función
 	}
 
-	// 4. Si después de buscar en ambos lados no se encontró
+	// Si después de buscar en ambos lados no se encontró
 	if targetPartition == -1 && targetEbrPosition == -1 {
 		return fmt.Errorf("partición con nombre '%s' no encontrada en el disco", cmd.name)
 	}
 
-	// 5. Confirmación del usuario
+	// Confirmación del usuario
 	fmt.Printf("\n¡ADVERTENCIA! Está a punto de eliminar la partición '%s'.\n", cmd.name)
 	if targetPartition != -1 && partitionInfo.Part_type[0] == 'E' {
 		fmt.Println("Esto eliminará también TODAS las particiones lógicas contenidas dentro.")
 	}
 
 
-	// --- Proceder con la eliminación ---
 
-	file, err := os.OpenFile(cmd.path, os.O_RDWR, 0644) // Necesitamos RDWR para borrar
+	file, err := os.OpenFile(cmd.path, os.O_RDWR, 0644) // Se necesita RDWR para borrar
 	if err != nil {
 		return fmt.Errorf("error re-abriendo disco para escritura: %w", err)
 	}
 	defer file.Close()
 
-	// 6. Lógica de Borrado
+	// Lógica de Borrado
 	if targetPartition != -1 { // Borrar Primaria o Extendida
 		partType := partitionInfo.Part_type[0]
 		fmt.Printf("Eliminando Partición %c '%s' en índice %d...\n", partType, cmd.name, targetPartition)
 
-		// 6a. Si es Extendida, primero borrar TODO su contenido (lógicas y EBRs)
+		// Si es Extendida, primero borrar TODO su contenido 
 		if partType == 'E' {
 			fmt.Println("Eliminando contenido de la Partición Extendida...")
 			// Simplificación: Si es 'full', llenar toda la extendida con ceros.
 			// Si es 'fast', no hacemos nada extra aquí (solo borraremos la entrada del MBR).
-			// Una implementación completa debería recorrer y borrar/invalidar EBRs.
 			if cmd.delete == "full" {
 				fmt.Printf("Rellenando con ceros el espacio de la Extendida (offset %d, size %d)...\n", partitionInfo.Part_start, partitionInfo.Part_size)
 				if err := zeroOutSpace(file, int64(partitionInfo.Part_start), int64(partitionInfo.Part_size)); err != nil {
-					// Es una advertencia, intentamos continuar borrando la entrada del MBR
 					fmt.Printf("Advertencia: error al rellenar con ceros la partición extendida: %v\n", err)
 				}
 			} else {
@@ -728,23 +724,22 @@ func deletePartition(cmd *FDISK) error {
 			}
 		}
 
-		// 6b. Borrar entrada en MBR
-		// Guardar start y size antes de borrar por si es 'full'
+		// Borrar entrada en MBR
 		startOffset := partitionInfo.Part_start
 		sizeToDelete := partitionInfo.Part_size
 		// Poner la entrada a cero/default
-		mbr.Mbr_partitions[targetPartition].DeletePartition() // Asumiendo método en Partition
+		mbr.Mbr_partitions[targetPartition].DeletePartition()
 		fmt.Println("Entrada de partición eliminada del MBR.")
 
-		// 6c. Si es 'full', borrar contenido físico
-		if cmd.delete == "full" && partType != 'E' { // Ya manejamos Extendida arriba
+		//Si es 'full', borrar contenido físico
+		if cmd.delete == "full" && partType != 'E' { 
 			fmt.Printf("Rellenando con ceros el espacio de la Partición %c (offset %d, size %d)...\n", partType, startOffset, sizeToDelete)
 			if err := zeroOutSpace(file, int64(startOffset), int64(sizeToDelete)); err != nil {
 				fmt.Printf("Advertencia: error al rellenar con ceros la partición primaria: %v\n", err)
 			}
 		}
 
-		// 6d. Serializar MBR
+		// Serializar MBR
 		if err := mbr.Serialize(cmd.path); err != nil {
 			return fmt.Errorf("error serializando MBR después de eliminar partición: %w", err)
 		}
@@ -752,7 +747,7 @@ func deletePartition(cmd *FDISK) error {
 	} else { // Borrar Lógica
 		fmt.Printf("Eliminando Partición Lógica '%s' (EBR en %d)...\n", cmd.name, targetEbrPosition)
 
-		// 6e. Si es 'full', borrar contenido físico de la LÓGICA
+		// Si es 'full', borrar contenido físico de la LÓGICA
 		startOffset := ebrToDelete.Part_start
 		sizeToDelete := ebrToDelete.Part_size
 		if cmd.delete == "full" && sizeToDelete > 0 {
@@ -762,7 +757,7 @@ func deletePartition(cmd *FDISK) error {
 			}
 		}
 
-		// 6f. Modificar cadena de EBRs para saltar el EBR a eliminar
+		// Modificar cadena de EBRs para saltar el EBR a eliminar
 		// Si hay un EBR anterior, actualizar su Part_next para que apunte al Part_next del EBR eliminado
 		if prevEbrPosition != -1 {
 			var prevEBR structures.EBR
@@ -788,8 +783,6 @@ func deletePartition(cmd *FDISK) error {
 
 		} else {
 			// Si no hay EBR anterior, significa que este era el PRIMERO lógico.
-			// El EBR 'contenedor' (en el start de la extendida) debe apuntar ahora
-			// al que seguía al eliminado (ebrToDelete.Part_next).
 			fmt.Println("Eliminando el primer EBR lógico. Actualizando EBR contenedor inicial...")
 			var firstEBRContainer structures.EBR
 			_, err = file.Seek(int64(extendedPartition.Part_start), 0)
@@ -812,8 +805,7 @@ func deletePartition(cmd *FDISK) error {
 			fmt.Println("EBR contenedor inicial actualizado.")
 		}
 
-		// 6g. (Opcional, más seguro) Invalidar/borrar el EBR eliminado en sí mismo
-		// Podríamos escribir ceros sobre el EBR en targetEbrPosition
+		// Invalidar/borrar el EBR eliminado en sí mismo
 		fmt.Printf("Invalidando EBR en offset %d...\n", targetEbrPosition)
 		if err := zeroOutSpace(file, targetEbrPosition, int64(binary.Size(structures.EBR{}))); err != nil {
 			fmt.Printf("Advertencia: error al invalidar EBR en %d: %v\n", targetEbrPosition, err)
@@ -824,29 +816,28 @@ func deletePartition(cmd *FDISK) error {
 	return nil
 }
 
-// addSpaceToPartition: Lógica para añadir/quitar espacio
+// Lógica para añadir/quitar espacio
 func addSpaceToPartition(cmd *FDISK) error {
 	fmt.Printf("Intentando modificar tamaño: Path='%s', Nombre='%s', Add='%d', Unit='%s'\n", cmd.path, cmd.name, cmd.add, cmd.unit)
 
-	// 1. Leer MBR
+	// Leer MBR
 	var mbr structures.MBR
 	if err := mbr.Deserialize(cmd.path); err != nil {
 		return fmt.Errorf("error leyendo MBR: %w", err)
 	}
-	mbr.PrintPartitions() // Debug
+	mbr.PrintPartitions()
 
-	// 2. Buscar la partición por nombre (SOLO Primaria o Extendida)
+	// Buscar la partición por nombre 
 	targetPartition := -1
 	var partitionInfo structures.Partition
 	for i := range mbr.Mbr_partitions {
 		p := mbr.Mbr_partitions[i]
 		name := strings.TrimRight(string(p.Part_name[:]), "\x00")
 		if p.Part_status[0] != 'N' && name == cmd.name {
-			if p.Part_type[0] == 'L' { // Asumiendo que el MBR podría tener 'L' si algo raro pasó
+			if p.Part_type[0] == 'L' { 
 				return fmt.Errorf("error: no se puede usar -add en particiones lógicas (nombre '%s')", cmd.name)
 			}
 			if p.Part_type[0] == 'E' && cmd.add < 0 {
-				// Quitar espacio de extendida requiere compactar lógicas -> muy complejo
 				return errors.New("error: no se puede quitar espacio (-add negativo) de particiones extendidas (requiere eliminar/recrear lógicas)")
 			}
 			targetPartition = i
@@ -855,21 +846,18 @@ func addSpaceToPartition(cmd *FDISK) error {
 		}
 	}
 
-	// Buscar Lógica (si no se encontró en MBR) - y retornar error si se encuentra
+	// Buscar Lógica y retornar error si se encuentra
 	if targetPartition == -1 {
 		extendedPartition, _ := mbr.GetExtendedPartition()
 		if extendedPartition != nil {
-			// (Código similar a deletePartition para buscar lógica por nombre)
-			// Si se encuentra una lógica con cmd.name, retornar error:
-			// return fmt.Errorf("error: no se puede usar -add en particiones lógicas (nombre '%s')", cmd.name)
+			return fmt.Errorf("error: no se puede usar -add en particiones lógicas (nombre '%s')", cmd.name)
 		}
-		// Si no se encontró ni en MBR ni lógica (y no hay extendida o no se encontró dentro)
 		return fmt.Errorf("partición con nombre '%s' no encontrada o es lógica", cmd.name)
 	}
 
 	fmt.Printf("Partición '%s' encontrada en índice %d del MBR.\n", cmd.name, targetPartition)
 
-	// 3. Calcular bytes a añadir/quitar
+	// Calcular bytes a añadir/quitar
 	bytesToAdd, err := utils.ConvertToBytes(cmd.add, cmd.unit)
 	if err != nil {
 		return fmt.Errorf("error convirtiendo valor de -add a bytes: %w", err)
@@ -877,12 +865,12 @@ func addSpaceToPartition(cmd *FDISK) error {
 
 	fmt.Printf("Bytes a modificar: %d (Positivo=Añadir, Negativo=Quitar)\n", bytesToAdd)
 
-	// --- Lógica de Modificación ---
+	// Lógica de Modificación
 	currentSize := partitionInfo.Part_size
 	currentStart := partitionInfo.Part_start
 	currentEnd := currentStart + currentSize
 
-	if bytesToAdd > 0 { // --- Añadir Espacio ---
+	if bytesToAdd > 0 { // Añadir Espacio 
 		fmt.Println("Intentando añadir espacio...")
 		// Encontrar espacio libre inmediatamente DESPUÉS
 		var spaceAfter int32 = 0
@@ -910,7 +898,7 @@ func addSpaceToPartition(cmd *FDISK) error {
 		mbr.Mbr_partitions[targetPartition].Part_size = newSize
 		fmt.Printf("Tamaño de la partición '%s' actualizado a %d bytes.\n", cmd.name, newSize)
 
-	} else { // --- Quitar Espacio ---
+	} else { // Quitar Espacio
 		fmt.Println("Intentando quitar espacio...")
 		bytesToRemove := -int32(bytesToAdd) // Hacerlo positivo
 		newSize := currentSize - bytesToRemove
@@ -920,9 +908,7 @@ func addSpaceToPartition(cmd *FDISK) error {
 		}
 		// Si es Extendida, verificar que nuevo tamaño no corte lógicas existentes
 		if partitionInfo.Part_type[0] == 'E' {
-			// Esto ya se bloqueó antes, pero por si acaso
 			return errors.New("error: no se puede quitar espacio de particiones extendidas")
-			// Implementación completa requeriría verificar que el 'occupiedEnd' de la última lógica
 		}
 
 		mbr.Mbr_partitions[targetPartition].Part_size = newSize
@@ -934,7 +920,6 @@ func addSpaceToPartition(cmd *FDISK) error {
 
 	}
 
-	// Serializar MBR Modificado
 	if err := mbr.Serialize(cmd.path); err != nil {
 		return fmt.Errorf("error serializando MBR después de modificar partición: %w", err)
 	}
@@ -943,7 +928,7 @@ func addSpaceToPartition(cmd *FDISK) error {
 	return nil
 }
 
-// zeroOutSpace: Helper para rellenar un área del disco con ceros
+// Helper para rellenar un área del disco con ceros
 func zeroOutSpace(file *os.File, offset int64, size int64) error {
 	if size <= 0 {
 		return nil

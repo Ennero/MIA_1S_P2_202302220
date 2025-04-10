@@ -307,7 +307,7 @@ func (sb *SuperBlock) CreateFolder(diskPath string, parentsDir []string, destDir
 		fmt.Printf("      Asignando bloque libre %d del bitmap\n", newParentBlockIndex)
 
 		// Actualizar bitmap de bloques
-		if err := sb.UpdateBitmapBlock(diskPath, newParentBlockIndex); err != nil {
+		if err := sb.UpdateBitmapBlock(diskPath, newParentBlockIndex,'1'); err != nil {
 			return fmt.Errorf("error al actualizar bitmap de bloques para el nuevo bloque %d: %w", newParentBlockIndex, err)
 		}
 		sb.S_free_blocks_count-- // Decrementar contador global
@@ -349,7 +349,7 @@ func (sb *SuperBlock) CreateFolder(diskPath string, parentsDir []string, destDir
 		return fmt.Errorf("no se pudo asignar un nuevo inodo para '%s': %w", destDir, err)
 	}
 	fmt.Printf("      Asignando inodo libre %d para '%s'\n", newDirInodeNum, destDir)
-	if err := sb.UpdateBitmapInode(diskPath, newDirInodeNum); err != nil {
+	if err := sb.UpdateBitmapInode(diskPath, newDirInodeNum,'1'); err != nil {
 		return fmt.Errorf("error al actualizar bitmap de inodos para el nuevo inodo %d: %w", newDirInodeNum, err)
 	}
 	sb.S_free_inodes_count--
@@ -361,7 +361,7 @@ func (sb *SuperBlock) CreateFolder(diskPath string, parentsDir []string, destDir
 		return fmt.Errorf("no se pudo asignar un nuevo bloque para '%s': %w", destDir, err)
 	}
 	fmt.Printf("      Asignando bloque libre %d para contenido de '%s'\n", newDirBlockIndex, destDir)
-	if err := sb.UpdateBitmapBlock(diskPath, newDirBlockIndex); err != nil {
+	if err := sb.UpdateBitmapBlock(diskPath, newDirBlockIndex,'1'); err != nil {
 		return fmt.Errorf("error al actualizar bitmap de bloques para el bloque %d: %w", newDirBlockIndex, err)
 	}
 	sb.S_free_blocks_count--

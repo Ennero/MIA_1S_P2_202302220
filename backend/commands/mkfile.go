@@ -241,7 +241,7 @@ func commandMkfile(mkfile *MKFILE) error {
 
 	// Validar índice de inodo
 	fmt.Printf("Inodo libre encontrado: %d\n", newInodeIndex)
-	err = partitionSuperblock.UpdateBitmapInode(partitionPath, newInodeIndex)
+	err = partitionSuperblock.UpdateBitmapInode(partitionPath, newInodeIndex,'1')
 	if err != nil {
 		return fmt.Errorf("error actualizando bitmap para inodo %d: %w", newInodeIndex, err)
 	}
@@ -506,7 +506,7 @@ func addEntryToParent(parentInodeIndex int32, entryName string, entryInodeIndex 
 		// FindFreeBlock ya valida el índice devuelto
 
 		// Actualizar bitmap y SB
-		err = sb.UpdateBitmapBlock(partitionPath, newBlockIndex)
+		err = sb.UpdateBitmapBlock(partitionPath, newBlockIndex,'1')
 		if err != nil {
 			return -1, nil, fmt.Errorf("error bitmap para nuevo bloque dir %d: %w", newBlockIndex, err)
 		}
@@ -573,7 +573,7 @@ func addEntryToParent(parentInodeIndex int32, entryName string, entryInodeIndex 
 		if err != nil {
 			return fmt.Errorf("error buscando bloque para L1: %w", err)
 		}
-		if err = sb.UpdateBitmapBlock(partitionPath, l1Index); err != nil {
+		if err = sb.UpdateBitmapBlock(partitionPath, l1Index,'1'); err != nil {
 			return fmt.Errorf("error bitmap L1 %d: %w", l1Index, err)
 		}
 		sb.S_free_blocks_count--
@@ -698,7 +698,7 @@ func allocateDataBlocks(contentBytes []byte, fileSize int32, sb *structures.Supe
 		fmt.Printf("Allocate: Bloque libre encontrado: %d (para bloque de datos #%d)\n", dataBlockIndex, b)
 
 		// Actualizar bitmap y SB para el bloque de DATOS
-		err = sb.UpdateBitmapBlock(partitionPath, dataBlockIndex)
+		err = sb.UpdateBitmapBlock(partitionPath, dataBlockIndex,'1')
 		if err != nil {
 			return allocatedBlockIndices, fmt.Errorf("error bitmap bloque datos %d: %w", dataBlockIndex, err)
 		}
@@ -739,7 +739,7 @@ func allocateDataBlocks(contentBytes []byte, fileSize int32, sb *structures.Supe
 					return allocatedBlockIndices, fmt.Errorf("no se pudo asignar bloque para punteros L1 (Simple): %w", err)
 				}
 
-				err = sb.UpdateBitmapBlock(partitionPath, indirect1BlockIndex)
+				err = sb.UpdateBitmapBlock(partitionPath, indirect1BlockIndex,'1')
 				if err != nil {
 					return allocatedBlockIndices, fmt.Errorf("error bitmap bloque punteros L1 %d: %w", indirect1BlockIndex, err)
 				}
@@ -779,7 +779,7 @@ func allocateDataBlocks(contentBytes []byte, fileSize int32, sb *structures.Supe
 					return allocatedBlockIndices, fmt.Errorf("no se pudo asignar bloque para punteros L1 (Doble): %w", err)
 				}
 
-				err = sb.UpdateBitmapBlock(partitionPath, indirect2L1BlockIndex)
+				err = sb.UpdateBitmapBlock(partitionPath, indirect2L1BlockIndex,'1')
 				if err != nil {
 					return allocatedBlockIndices, fmt.Errorf("error bitmap bloque punteros L1 doble %d: %w", indirect2L1BlockIndex, err)
 				}
@@ -807,7 +807,7 @@ func allocateDataBlocks(contentBytes []byte, fileSize int32, sb *structures.Supe
 					return allocatedBlockIndices, fmt.Errorf("no se pudo asignar bloque para punteros L2 (idxL1=%d): %w", idxL1, err)
 				}
 
-				err = sb.UpdateBitmapBlock(partitionPath, blockIndexL2)
+				err = sb.UpdateBitmapBlock(partitionPath, blockIndexL2,'1')
 				if err != nil {
 					return allocatedBlockIndices, fmt.Errorf("error bitmap bloque punteros L2 %d: %w", blockIndexL2, err)
 				}

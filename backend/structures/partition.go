@@ -11,13 +11,6 @@ type Partition struct {
 	Part_id          [4]byte  // ID de la partición
 }
 
-/*
-Part Status:
-	N: Disponible
-	0: Creado
-	1: Montado
-Esto queda a su criterio.
-*/
 
 // Crear una partición con los parámetros proporcionados
 func (p *Partition) CreatePartition(partStart, partSize int, partType, partFit, partName string) {
@@ -57,16 +50,3 @@ func (p *Partition) MountPartition(correlative int, id string) error {
 
 	return nil
 }
-/*
-// Imprimir los valores de la partición
-func (p *Partition) PrintPartition() {
-	fmt.Printf("Part_status: %c\n", p.Part_status[0])
-	fmt.Printf("Part_type: %c\n", p.Part_type[0])
-	fmt.Printf("Part_fit: %c\n", p.Part_fit[0])
-	fmt.Printf("Part_start: %d\n", p.Part_start)
-	fmt.Printf("Part_size: %d\n", p.Part_size)
-	fmt.Printf("Part_name: %s\n", string(p.Part_name[:]))
-	fmt.Printf("Part_correlative: %d\n", p.Part_correlative)
-	fmt.Printf("Part_id: %s\n", string(p.Part_id[:]))
-}
-*/

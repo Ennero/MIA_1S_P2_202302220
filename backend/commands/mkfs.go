@@ -140,7 +140,7 @@ func commandMkfs(mkfs *MKFS) error {
 	fmt.Printf("Iniciando formateo MKFS para partición ID: %s, Tipo: %s, Sistema de Archivos: %s\n", mkfs.id, mkfs.typ, mkfs.fs)
 
 	// Obtener Info de la Partición
-	mountedPartitionInfo, partitionPath, err := stores.GetMountedPartitionInfo(mkfs.id) // Usar la función corregida
+	_, mountedPartitionInfo, partitionPath, err := stores.GetMountedPartitionInfo(mkfs.id) // Usar la función corregida
 	if err != nil {
 		return fmt.Errorf("error obteniendo información de la partición '%s': %w", mkfs.id, err)
 	}
@@ -289,11 +289,11 @@ func createInitialStructures(sb *structures.SuperBlock, diskPath string, fsType 
 		return fmt.Errorf("no hay bloques libres para directorio raíz: %w", err)
 	}
 	inodeRoot.I_block[0] = rootBlockIndex
-	if err := sb.UpdateBitmapBlock(diskPath, rootBlockIndex); err != nil {
+	if err := sb.UpdateBitmapBlock(diskPath, rootBlockIndex,'1'); err != nil {
 		return fmt.Errorf("error bitmap bloque raíz %d: %w", rootBlockIndex, err)
 	}
 	sb.S_free_blocks_count--
-	if err := sb.UpdateBitmapInode(diskPath, 0); err != nil {
+	if err := sb.UpdateBitmapInode(diskPath, 0,'1'); err != nil {
 		return fmt.Errorf("error bitmap inodo raíz 0: %w", err)
 	}
 	sb.S_free_inodes_count--
@@ -328,11 +328,11 @@ func createInitialStructures(sb *structures.SuperBlock, diskPath string, fsType 
 		return fmt.Errorf("no hay bloques libres para users.txt: %w", err)
 	}
 	inodeUsers.I_block[0] = usersBlockIndex
-	if err := sb.UpdateBitmapBlock(diskPath, usersBlockIndex); err != nil {
+	if err := sb.UpdateBitmapBlock(diskPath, usersBlockIndex,'1'); err != nil {
 		return fmt.Errorf("error bitmap bloque users %d: %w", usersBlockIndex, err)
 	}
 	sb.S_free_blocks_count--
-	if err := sb.UpdateBitmapInode(diskPath, 1); err != nil {
+	if err := sb.UpdateBitmapInode(diskPath, 1,'1'); err != nil {
 		return fmt.Errorf("error bitmap inodo users 1: %w", err)
 	}
 	sb.S_free_inodes_count--
@@ -397,7 +397,7 @@ func createInitialStructures(sb *structures.SuperBlock, diskPath string, fsType 
 			if err != nil {
 				return fmt.Errorf("no hay bloques libres para journal (bloque %d): %w", j+1, err)
 			}
-			if err := sb.UpdateBitmapBlock(diskPath, blockIdx); err != nil {
+			if err := sb.UpdateBitmapBlock(diskPath, blockIdx,'1'); err != nil {
 				return fmt.Errorf("error bitmap bloque journal %d: %w", blockIdx, err)
 			}
 			sb.S_free_blocks_count--
@@ -410,7 +410,7 @@ func createInitialStructures(sb *structures.SuperBlock, diskPath string, fsType 
 		if err := inodeJournal.Serialize(diskPath, journalInodeOffset); err != nil {
 			return fmt.Errorf("error serializando inodo journal %d: %w", journalInodeIndex, err)
 		}
-		if err := sb.UpdateBitmapInode(diskPath, journalInodeIndex); err != nil {
+		if err := sb.UpdateBitmapInode(diskPath, journalInodeIndex,'1'); err != nil {
 			return fmt.Errorf("error bitmap inodo journal %d: %w", journalInodeIndex, err)
 		}
 		sb.S_free_inodes_count--

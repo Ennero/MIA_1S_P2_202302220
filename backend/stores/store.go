@@ -158,31 +158,24 @@ func (a *AuthStore) GetPartitionID() string {
 	return a.PartitionID
 }
 
-// Obtiene la información de la Partición y el path del disco físico ----------------------------------------------------------------------------
-func GetMountedPartitionInfo(id string) (*structures.Partition, string, error) {
+func GetMountedPartitionInfo(id string) (*structures.MBR, *structures.Partition, string, error) {
 	path := MountedPartitions[id]
 	if path == "" {
-		return nil, "", errors.New("la partición no está montada")
+		return nil, nil, "", fmt.Errorf("partición con id '%s' no está montada", id)
 	}
 
-	// Crear una instancia de MBR
 	var mbr structures.MBR
 
-	// Deserializar la estructura MBR desde un archivo binario
 	err := mbr.Deserialize(path)
 	if err != nil {
-		return nil, "", fmt.Errorf("error al leer MBR del disco '%s': %w", path, err)
+		return &mbr, nil, path, fmt.Errorf("error al leer MBR del disco '%s': %w", path, err)
 	}
 
-	// Buscar la partición con el id especificado
+	// Buscar la partición DENTRO DEL MBR que acabamos de leer
 	partition, err := mbr.GetPartitionByID(id) 
-	if err != nil {                    
-		return nil, path, fmt.Errorf("no se encontró la partición con id '%s' en el disco '%s': %w", id, path, err)
-	}
-	if partition == nil {
-		return nil, path, fmt.Errorf("no se encontró la partición con id '%s' en el disco '%s'", id, path)
+	if err != nil {
+		return &mbr, nil, path, fmt.Errorf("no se encontró la partición con id '%s' en el MBR del disco '%s': %w", id, path, err)
 	}
 
-	// Devolver la partición encontrada y el path al disco físico
-	return partition, path, nil
+	return &mbr, partition, path, nil
 }

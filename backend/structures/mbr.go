@@ -83,7 +83,6 @@ func (mbr *MBR) GetPartitionNames() []string {
 	return partitionNames
 }
 
-// GetPartitionByName: Modificado para devolver error si no se encuentra
 func (mbr *MBR) GetPartitionByName(name string) (*Partition, int, error) {
 	inputName := strings.Trim(name, "\x00 ") // Limpiar nombre buscado
 	for i := range mbr.Mbr_partitions {
@@ -91,7 +90,6 @@ func (mbr *MBR) GetPartitionByName(name string) (*Partition, int, error) {
 		if mbr.Mbr_partitions[i].Part_status != [1]byte{0} && mbr.Mbr_partitions[i].Part_status[0] != 'N' && mbr.Mbr_partitions[i].Part_size > 0 {
 			partitionName := strings.TrimRight(string(mbr.Mbr_partitions[i].Part_name[:]), "\x00 ")
 			if strings.EqualFold(partitionName, inputName) {
-				// Devolver puntero a la partición ENCONTRADA en el array, su índice, y nil error
 				return &mbr.Mbr_partitions[i], i, nil
 			}
 		}
@@ -154,8 +152,7 @@ func (mbr *MBR) PrintPartitions() {
 	}
 }
 
-//Mejora de firsAvailablePartition
-
+//Mejora de firsAvailablePartition--------------------------------------------
 // Gap representa un hueco de espacio libre en el disco
 type Gap struct {
 	Start int32

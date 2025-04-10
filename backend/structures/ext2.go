@@ -40,7 +40,7 @@ func (sb *SuperBlock) CreateUsersFile(path string) error {
 	}
 
 	// Actualizar el bitmap de inodos en el índice calculado
-	err = sb.UpdateBitmapInode(path, rootInodeIndex)
+	err = sb.UpdateBitmapInode(path, rootInodeIndex,'1')
 	if err != nil {
 		return fmt.Errorf("error actualizando bitmap para inodo raíz (índice %d): %w", rootInodeIndex, err)
 	}
@@ -66,7 +66,7 @@ func (sb *SuperBlock) CreateUsersFile(path string) error {
 	}
 
 	// Actualizar el bitmap de bloques en el índice calculado
-	err = sb.UpdateBitmapBlock(path, rootBlockIndex)
+	err = sb.UpdateBitmapBlock(path, rootBlockIndex,'1')
 	if err != nil {
 		return fmt.Errorf("error actualizando bitmap para bloque raíz (índice %d): %w", rootBlockIndex, err)
 	}
@@ -107,7 +107,7 @@ func (sb *SuperBlock) CreateUsersFile(path string) error {
 	}
 
 	// Actualizar bitmap inodo en usersInodeIndex
-	err = sb.UpdateBitmapInode(path, usersInodeIndex)
+	err = sb.UpdateBitmapInode(path, usersInodeIndex,'1')
 	if err != nil {
 		return fmt.Errorf("error actualizando bitmap para inodo users.txt (índice %d): %w", usersInodeIndex, err)
 	}
@@ -127,7 +127,7 @@ func (sb *SuperBlock) CreateUsersFile(path string) error {
 	}
 
 	// Actualizar bitmap bloque en usersBlockIndex
-	err = sb.UpdateBitmapBlock(path, usersBlockIndex)
+	err = sb.UpdateBitmapBlock(path, usersBlockIndex,'1')
 	if err != nil {
 		return fmt.Errorf("error actualizando bitmap para bloque users.txt (índice %d): %w", usersBlockIndex, err)
 	}
