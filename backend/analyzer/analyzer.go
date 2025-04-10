@@ -78,10 +78,14 @@ func Analyzer(input string) (string, error) {
 	case "copy":
 		return commands.ParseCopy(arguments)
 	case "move":
-		return commands.ParseMove(arguments	)
-
+		return commands.ParseMove(arguments)
+	case "find":
+		return commands.ParseFind(arguments)
+	case "chown":
+		return commands.ParseChown(arguments)
+	case "chmod":
+		return commands.ParseChmod(arguments)
 	default:
-
 		return "", fmt.Errorf("comando desconocido: %s", command)
 	}
 }

@@ -3,18 +3,17 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"path/filepath" // Para Base/Dir
+	"path/filepath" 
 	"regexp"
 	"strings"
-	"time" // Para timestamps
-
+	"time"
 	stores "backend/stores"
 	structures "backend/structures"
 )
 
 type COPY struct {
-	Path    string // Path de origen DENTRO del FS
-	Destino string // Path del directorio destino DENTRO del FS
+	Path    string
+	Destino string 
 }
 
 func ParseCopy(tokens []string) (string, error) {
@@ -120,7 +119,7 @@ func commandCopy(cmd *COPY) error {
 		return errors.New("tamaño de inodo o bloque inválido")
 	}
 
-	// Validar Origen (-path)
+	// Validar Origen
 	fmt.Printf("Validando origen: %s\n", cmd.Path)
 	sourceInodeIndex, sourceInode, errFindSource := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.Path)
 	if errFindSource != nil {
@@ -172,8 +171,8 @@ func commandCopy(cmd *COPY) error {
 
 	// Serializar Superbloque
 	fmt.Println("Serializando SuperBlock después de COPY...")
+
 	// Eliminar las líneas incorrectas que intentaban parsear el path
-	// Usar la variable 'mountedPartition' obtenida al principio
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
 		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de copy: %w", err)
@@ -183,7 +182,6 @@ func commandCopy(cmd *COPY) error {
 	return nil
 }
 
-// recursiveCopy 
 func recursiveCopy(
 	sourceInodeIndex int32,
 	parentDestInodeIndex int32,
@@ -347,7 +345,6 @@ func recursiveCopy(
 	return nil
 }
 
-// Verifica permisos 
 func checkPermissions(currentUser string, userGroupStr string, requiredPermission byte, targetInode *structures.Inode, _ *structures.SuperBlock, _ string) bool {
 	fmt.Printf("      checkPermissions: User='%s' GroupStr='%s' Req='%c' on Inode (UID=%d, GID=%d, Perm=%s)\n",
 		currentUser, userGroupStr, requiredPermission, targetInode.I_uid, targetInode.I_gid, string(targetInode.I_perm[:]))
@@ -423,7 +420,6 @@ func checkPermissions(currentUser string, userGroupStr string, requiredPermissio
 		return true
 	}
 
-	// Si no se concedió en ninguna etapa
 	fmt.Println("        Permiso denegado.")
 	return false
 }
