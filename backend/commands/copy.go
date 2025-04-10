@@ -1,19 +1,19 @@
 package commands
 
 import (
+	stores "backend/stores"
+	structures "backend/structures"
 	"errors"
 	"fmt"
-	"path/filepath" 
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
-	stores "backend/stores"
-	structures "backend/structures"
 )
 
 type COPY struct {
 	Path    string
-	Destino string 
+	Destino string
 }
 
 func ParseCopy(tokens []string) (string, error) {
@@ -130,7 +130,7 @@ func commandCopy(cmd *COPY) error {
 	}
 	fmt.Println("Permiso de lectura sobre origen concedido.")
 
-	// Validar Destino 
+	// Validar Destino
 	fmt.Printf("Validando destino: %s\n", cmd.Destino)
 	destDirInodeIndex, destDirInode, errFindDest := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.Destino)
 	if errFindDest != nil {
@@ -257,7 +257,7 @@ func recursiveCopy(
 			return fmt.Errorf("error añadiendo entrada archivo copiado '%s': %w", newName, errAdd)
 		}
 
-	} else if sourceInode.I_type[0] == '0' { //  DIRECTORIO 
+	} else if sourceInode.I_type[0] == '0' { //  DIRECTORIO
 		fmt.Printf("    Origen es DIRECTORIO. Copiando recursivamente...\n")
 		// Asignar nuevo inodo
 		newDirInodeIndex, errInodeAlloc := sb.FindFreeInode(diskPath)
@@ -345,81 +345,74 @@ func recursiveCopy(
 	return nil
 }
 
-func checkPermissions(currentUser string, userGroupStr string, requiredPermission byte, targetInode *structures.Inode, _ *structures.SuperBlock, _ string) bool {
-	fmt.Printf("      checkPermissions: User='%s' GroupStr='%s' Req='%c' on Inode (UID=%d, GID=%d, Perm=%s)\n",
-		currentUser, userGroupStr, requiredPermission, targetInode.I_uid, targetInode.I_gid, string(targetInode.I_perm[:]))
+// --------------------------------------------------------------------------------------------------------------------------------------------
 
-	// Caso Root
+func checkPermissions(currentUser string, _ string, requiredPermission byte, targetInode *structures.Inode, sb *structures.SuperBlock, diskPath string) bool {
+	fmt.Printf("      checkPermissions: User='%s' Req='%c' on Inode (UID=%d, GID=%d, Perm=%s)\n",
+		currentUser, requiredPermission, targetInode.I_uid, targetInode.I_gid, string(targetInode.I_perm[:]))
+
+	// Caso Root siempre tiene permiso
 	if currentUser == "root" {
 		fmt.Println("        Permiso concedido (root).")
 		return true
 	}
 
-	//Obtener UID y GID numéricos del usuario actual (DESDE users.txt)
-	currentUserUID := int32(-1)
-	currentUserGID := int32(-1)
-	if currentUser != "root" {
-		currentUserUID = 1 
-		currentUserGID = 1 
-		fmt.Printf("        Advertencia: Usando UID/GID placeholder (%d/%d) para '%s'\n", currentUserUID, currentUserGID, currentUser)
+	// Obtener UID y GID del usuario actual desde /users.txt
+	currentUserUID, currentUserGID, errInfo := getUserInfo(currentUser, sb, diskPath) // <-- LLAMADA A getUserInfo
+	if errInfo != nil {
+		// Si no se pueden obtener los IDs (usuario no existe?), denegar permiso
+		fmt.Printf("        Error obteniendo info para usuario '%s': %v. Permiso denegado.\n", currentUser, errInfo)
+		return false
 	}
+	fmt.Printf("        Info usuario actual encontrada: UID=%d, GID=%d\n", currentUserUID, currentUserGID)
+
 
 	// Extraer permisos del inodo
 	ownerPerms := targetInode.I_perm[0]
 	groupPerms := targetInode.I_perm[1]
 	otherPerms := targetInode.I_perm[2]
 
-	// Verificar permisos
+	// Función helper interna para chequear permiso
+	check := func(permBits byte, req byte) bool {
+		switch req {
+		case 'r': return permBits == 'r' || permBits == '4' || permBits == '5' || permBits == '6' || permBits == '7'
+		case 'w': return permBits == 'w' || permBits == '2' || permBits == '3' || permBits == '6' || permBits == '7'
+		case 'x': return permBits == 'x' || permBits == '1' || permBits == '3' || permBits == '5' || permBits == '7'
+		}
+		return false
+	}
+
+
+	// Verificar permisos en orden: Dueño -> Grupo -> Otros
 	hasPerm := false
 
-	// Chequear Dueño
-	if targetInode.I_uid == currentUserUID {
+	// Chequear Dueño (usando UID real)
+	isOwner := (targetInode.I_uid == currentUserUID)
+	if isOwner {
 		fmt.Println("        Usuario es dueño.")
-		switch requiredPermission {
-		case 'r':
-			hasPerm = (ownerPerms == 'r' || ownerPerms == '4' || ownerPerms == '5' || ownerPerms == '6' || ownerPerms == '7')
-		case 'w':
-			hasPerm = (ownerPerms == 'w' || ownerPerms == '2' || ownerPerms == '3' || ownerPerms == '6' || ownerPerms == '7')
-		case 'x':
-			hasPerm = (ownerPerms == 'x' || ownerPerms == '1' || ownerPerms == '3' || ownerPerms == '5' || ownerPerms == '7')
-		}
-		if hasPerm {
-			fmt.Println("        Permiso de dueño concedido.")
-			return true
-		}
+		hasPerm = check(ownerPerms, requiredPermission)
+		if hasPerm { fmt.Println("        Permiso de dueño concedido."); return true }
+		// Si es dueño pero no tiene el permiso, se deniega (
+		fmt.Println("        Permiso de dueño DENEGADO.")
+		return false
 	}
 
-	// Chequear Grupo
-	if targetInode.I_gid == currentUserGID { 
+	// Chequear Grupo 
+	isInGroup := (targetInode.I_gid == currentUserGID) 
+	if isInGroup {
 		fmt.Println("        Usuario pertenece al grupo.")
-		switch requiredPermission {
-		case 'r':
-			hasPerm = (groupPerms == 'r' || groupPerms == '4' || groupPerms == '5' || groupPerms == '6' || groupPerms == '7')
-		case 'w':
-			hasPerm = (groupPerms == 'w' || groupPerms == '2' || groupPerms == '3' || groupPerms == '6' || groupPerms == '7')
-		case 'x':
-			hasPerm = (groupPerms == 'x' || groupPerms == '1' || groupPerms == '3' || groupPerms == '5' || groupPerms == '7')
-		}
-		if hasPerm {
-			fmt.Println("        Permiso de grupo concedido.")
-			return true
-		}
+		hasPerm = check(groupPerms, requiredPermission)
+		if hasPerm { fmt.Println("        Permiso de grupo concedido."); return true }
+		// Si pertenece al grupo pero no tiene permiso, se miran 'otros'
+		fmt.Println("        Permiso de grupo DENEGADO.")
 	}
 
+	// Chequear Otros 
 	fmt.Println("        Verificando permisos de 'otros'.")
-	switch requiredPermission {
-	case 'r':
-		hasPerm = (otherPerms == 'r' || otherPerms == '4' || otherPerms == '5' || otherPerms == '6' || otherPerms == '7')
-	case 'w':
-		hasPerm = (otherPerms == 'w' || otherPerms == '2' || otherPerms == '3' || otherPerms == '6' || otherPerms == '7')
-	case 'x':
-		hasPerm = (otherPerms == 'x' || otherPerms == '1' || otherPerms == '3' || otherPerms == '5' || otherPerms == '7')
-	}
-	if hasPerm {
-		fmt.Println("        Permiso de 'otros' concedido.")
-		return true
-	}
+	hasPerm = check(otherPerms, requiredPermission)
+	if hasPerm { fmt.Println("        Permiso de 'otros' concedido."); return true }
 
-	fmt.Println("        Permiso denegado.")
+	// Si no se concedió en ninguna etapa
+	fmt.Println("        Permiso denegado final.")
 	return false
 }
