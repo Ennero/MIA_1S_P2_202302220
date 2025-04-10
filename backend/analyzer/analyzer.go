@@ -75,6 +75,9 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseEdit(arguments)
 	case "rename":
 		return commands.ParseRename(arguments)
+	case "copy":
+		return commands.ParseCopy(arguments)
+
 
 	default:
 
