@@ -3,6 +3,7 @@ package stores
 import (
 	structures "backend/structures"
 	"errors"
+	"fmt"
 )
 
 // Carnet de estudiante
@@ -13,12 +14,11 @@ var (
 	MountedPartitions map[string]string = make(map[string]string)
 )
 
-//Lista para saber si ya se montó alguna particion
+// Lista para saber si ya se montó alguna particion
 var ListPatitions []string = make([]string, 0)
 
-//Esta lista es para el mounted xd
+// Esta lista es para el mounted xd
 var ListMounted []string = make([]string, 0)
-
 
 // GetMountedPartition obtiene la partición montada con el id especificado
 func GetMountedPartition(id string) (*structures.Partition, string, error) {
@@ -115,7 +115,8 @@ func GetMountedPartitionSuperblock(id string) (*structures.SuperBlock, *structur
 
 	return &sb, partition, path, nil
 }
- // PARTE PARA LA AUTENTICACION CON EL LOGIN
+
+// PARTE PARA LA AUTENTICACION CON EL LOGIN
 // AuthStore almacena la información de autenticación del usuario
 type AuthStore struct {
 	IsLoggedIn  bool
@@ -157,15 +158,31 @@ func (a *AuthStore) GetPartitionID() string {
 	return a.PartitionID
 }
 
+// Obtiene la información de la Partición y el path del disco físico ----------------------------------------------------------------------------
+func GetMountedPartitionInfo(id string) (*structures.Partition, string, error) {
+	path := MountedPartitions[id]
+	if path == "" {
+		return nil, "", errors.New("la partición no está montada")
+	}
 
+	// Crear una instancia de MBR
+	var mbr structures.MBR
 
+	// Deserializar la estructura MBR desde un archivo binario
+	err := mbr.Deserialize(path)
+	if err != nil {
+		return nil, "", fmt.Errorf("error al leer MBR del disco '%s': %w", path, err)
+	}
 
+	// Buscar la partición con el id especificado
+	partition, err := mbr.GetPartitionByID(id) 
+	if err != nil {                    
+		return nil, path, fmt.Errorf("no se encontró la partición con id '%s' en el disco '%s': %w", id, path, err)
+	}
+	if partition == nil {
+		return nil, path, fmt.Errorf("no se encontró la partición con id '%s' en el disco '%s'", id, path)
+	}
 
-
-
-
-
-
-
-
-
+	// Devolver la partición encontrada y el path al disco físico
+	return partition, path, nil
+}

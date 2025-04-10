@@ -143,10 +143,7 @@ export default {
       for (const line of lines) {
         const trimmedLine = line.trim(); // Quitar espacios inicio/fin
 
-        // Ignorar líneas vacías y comentarios en el frontend también
         if (trimmedLine === "" || trimmedLine.startsWith("#")) {
-          // Opcional: Mostrar línea ignorada en la salida
-          // this.salida += `(Ignorando: ${line})\n`;
           continue; // Pasar a la siguiente línea
         }
 
