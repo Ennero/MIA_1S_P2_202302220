@@ -85,6 +85,12 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseChown(arguments)
 	case "chmod":
 		return commands.ParseChmod(arguments)
+	case "recovery":
+		return commands.ParseRecovery(arguments)
+	case "loss":
+		return commands.ParseLoss(arguments)
+	case "journaling":
+		return commands.ParseJournaling(arguments)
 	default:
 		return "", fmt.Errorf("comando desconocido: %s", command)
 	}
