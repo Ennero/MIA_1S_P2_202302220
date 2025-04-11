@@ -1,14 +1,15 @@
 package commands
 
 import (
+	stores "backend/stores"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-// RMDISK estructura que representa el comando rmdisk con sus parámetros
 type RMDISK struct {
 	path string // Path del disco
 }
@@ -74,16 +75,36 @@ func ParseRmdisk(tokens []string) (string, error) {
 func commandRmdisk(rmdisk *RMDISK) error {
 
 	if _, err := os.Stat(rmdisk.path); os.IsNotExist(err) {
-		return fmt.Errorf("no existe el archivo %s", rmdisk.path)
+		return fmt.Errorf("no existe el archivo de disco '%s'", rmdisk.path)
 	}
 
-	// Intentar eliminar el archivo
+	//  VERIFICAR SI HAY PARTICIONES MONTADAS DE ESTE DISCO
+	mountedFromThisDisk := []string{}
+	for id, mountedPath := range stores.MountedPartitions {
+		// Comparar paths después de limpiarlos por si acaso
+		if filepath.Clean(mountedPath) == filepath.Clean(rmdisk.path) {
+			mountedFromThisDisk = append(mountedFromThisDisk, id)
+		}
+	}
+	if len(mountedFromThisDisk) > 0 {
+		return fmt.Errorf("error: no se puede eliminar el disco '%s' porque las siguientes particiones están montadas: %v", rmdisk.path, mountedFromThisDisk)
+	}
+
+	// Intentar eliminar el archivo físico
+	fmt.Printf("Intentando eliminar archivo físico: %s\n", rmdisk.path)
 	err := os.Remove(rmdisk.path)
 	if err != nil {
-		return fmt.Errorf("error al eliminar el archivo %s: %v", rmdisk.path, err)
+		return fmt.Errorf("error al eliminar el archivo '%s': %w", rmdisk.path, err)
 	}
+	fmt.Printf("Archivo de disco %s eliminado exitosamente del sistema.\n", rmdisk.path)
 
-	fmt.Printf("Disco %s eliminado exitosamente.\n", rmdisk.path)
-
+	//  Quitar del Registro de Discos 
+	if _, exists := stores.DiskRegistry[rmdisk.path]; exists {
+		delete(stores.DiskRegistry, rmdisk.path)
+		fmt.Printf("Disco '%s' eliminado del registro.\n", rmdisk.path)
+	} else {
+		fmt.Printf("Advertencia: Disco '%s' no encontrado en el registro para eliminar.\n", rmdisk.path)
+	}
+	
 	return nil
 }

@@ -9,16 +9,17 @@ import (
 // Carnet de estudiante
 const Carnet string = "20" // 202302220
 
-// Declaración de variables globales
+// --- Variables Globales ---
 var (
+	// Mapa para particiones montadas
 	MountedPartitions map[string]string = make(map[string]string)
+
+	// Mapa para discos creados
+	DiskRegistry map[string]string = make(map[string]string) 
+
+	ListPatitions []string = make([]string, 0) // Guarda NOMBRES de particiones montadas
+	ListMounted   []string = make([]string, 0) // Guarda IDs de particiones montadas
 )
-
-// Lista para saber si ya se montó alguna particion
-var ListPatitions []string = make([]string, 0)
-
-// Esta lista es para el mounted xd
-var ListMounted []string = make([]string, 0)
 
 // GetMountedPartition obtiene la partición montada con el id especificado
 func GetMountedPartition(id string) (*structures.Partition, string, error) {
