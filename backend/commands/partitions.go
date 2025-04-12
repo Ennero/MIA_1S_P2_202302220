@@ -1,19 +1,20 @@
 package commands
 
 import (
-	"encoding/binary" // Necesario para addLogicalPartitionsInfo
+	stores "backend/stores"
+	structures "backend/structures"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"            // Necesario para validar si el archivo existe
-	"path/filepath" // Para obtener nombre base si se necesitara
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	structures "backend/structures"
 )
 
 type PARTITIONS struct {
-	path string 
+	path string
 }
 
 func ParsePartitions(tokens []string) (string, error) {
@@ -44,7 +45,7 @@ func ParsePartitions(tokens []string) (string, error) {
 			value = match[1]
 		} else {
 			value = match[2]
-		} 
+		}
 
 		if processedKeys[key] {
 			return "", fmt.Errorf("parámetro duplicado: %s", key)
@@ -55,14 +56,14 @@ func ParsePartitions(tokens []string) (string, error) {
 		}
 
 		// Validar si el archivo de disco existe
-		cleanedPath := filepath.Clean(value) 
+		cleanedPath := filepath.Clean(value)
 		if _, err := os.Stat(cleanedPath); os.IsNotExist(err) {
 			return "", fmt.Errorf("error: el archivo de disco especificado en -path no existe: '%s'", cleanedPath)
 		} else if err != nil {
 			return "", fmt.Errorf("error al verificar el archivo de disco '%s': %w", cleanedPath, err)
 		}
 
-		cmd.path = cleanedPath 
+		cmd.path = cleanedPath
 
 	} else {
 		return "", fmt.Errorf("parámetro inválido o no reconocido: '%s'. Se esperaba -path=<ruta_disco>", token)
@@ -72,7 +73,6 @@ func ParsePartitions(tokens []string) (string, error) {
 		return "", errors.New("falta el parámetro requerido: -path")
 	}
 
-	// Llamar a la lógica del comando
 	output, err := commandPartitions(cmd)
 	if err != nil {
 		return "", err
@@ -86,35 +86,32 @@ func ParsePartitions(tokens []string) (string, error) {
 }
 
 func commandPartitions(cmd *PARTITIONS) (string, error) {
-	diskPath := cmd.path                    // Usar el path directamente
-	diskBaseName := filepath.Base(diskPath) // Obtener nombre base para mensajes
-	fmt.Printf("Buscando particiones para el disco: '%s' (%s)\n", diskBaseName, diskPath)
+	diskPath := cmd.path
+	diskBaseName := filepath.Base(diskPath)
+	fmt.Printf("Buscando particiones para disco: '%s' (%s)\n", diskBaseName, diskPath)
 
-	// Leer el MBR del disco especificado
 	var mbr structures.MBR
 	err := mbr.Deserialize(diskPath)
 	if err != nil {
-		return "", fmt.Errorf("error leyendo MBR del disco '%s': %w", diskPath, err)
+		return "", fmt.Errorf("error leyendo MBR '%s': %w", diskPath, err)
 	}
 
-	// Recopilar y Formatear Información de Particiones Válidas
 	var validPartitionStrings []string
 	validPartitionsForSort := []structures.Partition{}
-
-	// Recopilar particiones válidas del MBR
 	for _, p := range mbr.Mbr_partitions {
-		// Partición válida: tamaño > 0 y estado no 'N' (o 0)
 		if p.Part_size > 0 && p.Part_status[0] != 'N' && p.Part_status[0] != 0 {
 			validPartitionsForSort = append(validPartitionsForSort, p)
 		}
 	}
-
 	sort.Slice(validPartitionsForSort, func(i, j int) bool {
 		return validPartitionsForSort[i].Part_start < validPartitionsForSort[j].Part_start
 	})
 
 	for _, p := range validPartitionsForSort {
 		partName := strings.TrimRight(string(p.Part_name[:]), "\x00 ")
+		if partName == "" {
+			partName = "[Sin Nombre]"
+		}
 		partType := p.Part_type[0]
 		if partType == 0 {
 			partType = ' '
@@ -125,31 +122,33 @@ func commandPartitions(cmd *PARTITIONS) (string, error) {
 		if partFit == 0 {
 			partFit = ' '
 		}
-		partStatus := p.Part_status[0] 
+		partStatus := p.Part_status[0]
 
-		// Formato: nombre,tipo,tamaño,inicio,fit,estado
-		partitionStr := fmt.Sprintf("%s,%c,%d,%d,%c,%c",
-			partName, partType, partSize, partStart, partFit, partStatus,
+		mountIdStr := ""
+		if foundId, isMounted := stores.GetMountIDForPartition(diskPath, partName); isMounted {
+			mountIdStr = foundId
+			fmt.Printf("  Partición '%s' está montada con ID: %s\n", partName, mountIdStr)
+		}
+
+		// Formato
+		partitionStr := fmt.Sprintf("%s,%c,%d,%d,%c,%c,%s",
+			partName, partType, partSize, partStart, partFit, partStatus, mountIdStr,
 		)
 		validPartitionStrings = append(validPartitionStrings, partitionStr)
 
 		// Si es extendida, buscar y añadir lógicas
 		if partType == 'E' {
-			errLogic := addLogicalPartitionsInfo(diskPath, p.Part_start, &validPartitionStrings)
+			errLogic := addLogicalPartitionsInfo(diskPath, p.Part_start, &validPartitionStrings) // Pasamos diskPath
 			if errLogic != nil {
 				fmt.Printf("Advertencia: Error leyendo particiones lógicas de '%s': %v\n", diskPath, errLogic)
 			}
 		}
+	}
 
-	} 
-
-	// Unir las cadenas con punto y coma
 	output := strings.Join(validPartitionStrings, ";")
-
 	return output, nil
 }
 
-// Función auxiliar para leer EBRs y añadir info de lógicas
 func addLogicalPartitionsInfo(diskPath string, extendedStart int32, resultStrings *[]string) error {
 	file, err := os.Open(diskPath)
 	if err != nil {
@@ -158,7 +157,6 @@ func addLogicalPartitionsInfo(diskPath string, extendedStart int32, resultString
 	defer file.Close()
 	currentPos := int64(extendedStart)
 	fmt.Printf("Buscando lógicas desde: %d\n", currentPos)
-	ebrSize := int32(binary.Size(structures.EBR{})) 
 
 	for {
 		_, err = file.Seek(currentPos, 0)
@@ -171,22 +169,23 @@ func addLogicalPartitionsInfo(diskPath string, extendedStart int32, resultString
 			if err != nil && !errors.Is(err, errors.New("EOF")) {
 				fmt.Printf("Error leyendo EBR %d: %v\n", currentPos, err)
 			}
-			break 
+			break
 		}
 		if ebr.Part_size <= 0 && currentPos == int64(extendedStart) {
-			fmt.Println("  Saltando EBR contenedor inicial/vacío.")
 			if ebr.Part_next == -1 {
 				break
-			} 
+			}
 			if int64(ebr.Part_next) <= currentPos {
-				return fmt.Errorf("ciclo EBR detectado (next=%d)", ebr.Part_next)
+				return fmt.Errorf("ciclo EBR(1)")
 			}
 			currentPos = int64(ebr.Part_next)
 			continue
 		}
 
-		// Procesar EBR válido que representa una lógica
 		partName := strings.TrimRight(string(ebr.Part_name[:]), "\x00 ")
+		if partName == "" {
+			partName = "[Sin Nombre Lógica]"
+		}
 		partType := byte('L')
 		partSize := ebr.Part_size
 		partStart := ebr.Part_start
@@ -199,12 +198,17 @@ func addLogicalPartitionsInfo(diskPath string, extendedStart int32, resultString
 			partStatus = 'N'
 		}
 
-		// Validar start/size de la lógica contra el EBR
-		if partStart != int32(currentPos)+ebrSize {
-			fmt.Printf("Advertencia: Inicio de lógica (%d) no coincide con esperado (%d) para EBR en %d.\n", partStart, int32(currentPos)+ebrSize, currentPos)
+		mountIdStr := ""
+		// Usamos la misma función helper pasando el diskPath y el nombre de la lógica
+		if foundId, isMounted := stores.GetMountIDForPartition(diskPath, partName); isMounted {
+			mountIdStr = foundId
+			fmt.Printf("  Partición Lógica '%s' está montada con ID: %s\n", partName, mountIdStr)
 		}
 
-		partitionStr := fmt.Sprintf("%s,%c,%d,%d,%c,%c", partName, partType, partSize, partStart, partFit, partStatus)
+		// Formato
+		partitionStr := fmt.Sprintf("%s,%c,%d,%d,%c,%c,%s",
+			partName, partType, partSize, partStart, partFit, partStatus, mountIdStr,
+		)
 		*resultStrings = append(*resultStrings, partitionStr)
 		fmt.Printf("  Lógica encontrada: %s\n", partitionStr)
 
@@ -212,7 +216,7 @@ func addLogicalPartitionsInfo(diskPath string, extendedStart int32, resultString
 			break
 		}
 		if int64(ebr.Part_next) <= currentPos {
-			return fmt.Errorf("ciclo EBR detectado (next=%d)", ebr.Part_next)
+			return fmt.Errorf("ciclo EBR(2)")
 		}
 		currentPos = int64(ebr.Part_next)
 	}

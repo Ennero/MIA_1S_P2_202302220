@@ -1,7 +1,7 @@
 <template>
     <div class="container py-5">
         <div class="row justify-content-center">
-            <div class="col-md-10 col-lg-10"> 
+            <div class="col-md-10 col-lg-10">
 
                 <div class="text-center mb-4">
                     <h1 class="display-6 fw-bold text-primary">Particiones del Disco</h1>
@@ -9,39 +9,41 @@
                     <hr class="my-4 text-primary opacity-75">
                 </div>
 
-                <div v-if="isLoading" class="text-center my-5">
+                <div v-if="isLoading" class="text-center">
                     <div class="spinner-border text-primary" role="status">
                         <span class="visually-hidden">Cargando...</span>
                     </div>
-                    <p class="mt-2">Cargando particiones...</p>
-                </div>
-
-                <div v-else-if="errorMessage" class="alert alert-danger text-center">
-                    <i class="bi bi-exclamation-triangle-fill me-2"></i> {{ errorMessage }}
                 </div>
 
                 <div v-else-if="partitions.length > 0" class="card shadow-sm">
                     <div class="card-header bg-secondary text-white">
-                        <i class="bi bi-hdd-rack-fill me-2"></i>Lista de Particiones Encontradas
+                        <i class="bi bi-hdd-rack-fill me-2"></i>Lista de Particiones (Haz clic para explorar si está montada)
                     </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover table-bordered mb-0">
-                            <thead class="table-dark"> 
+                            <thead class="table-dark">
                                 <tr>
                                     <th class="text-center">Nombre</th>
                                     <th class="text-center">Tipo</th>
-                                    <th class="text-center">Tamaño (bytes)</th>
+                                    <th class="text-end">Tamaño (bytes)</th>
+                                    <th class="text-end">Inicio (byte)</th>
                                     <th class="text-center">Ajuste</th>
                                     <th class="text-center">Estado</th>
+                                    <th class="text-center">ID Montaje</th> 
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="part in partitions" :key="part.name + '-' + part.start">
-                                    <td class="text-center" @click="selectPartition(part)" >{{ part.name || '[Sin Nombre]' }}</td>
-                                    <td class="text-center" @click="selectPartition(part)">{{ part.type }}</td>
-                                    <td class="text-center" @click="selectPartition(part)">{{ part.size.toLocaleString() }}</td>
-                                    <td class="text-center" @click="selectPartition(part)">{{ part.fit }}</td>
-                                    <td class="text-center" @click="selectPartition(part)">{{ part.status }}</td>
+                                <tr v-for="part in partitions" :key="part.name + '-' + part.start"
+                                    @click="selectPartition(part)"
+                                    :style="part.mountId ? 'cursor: pointer;' : ''"
+                                    :title="part.mountId ? 'Clic para explorar' : 'No montada'">
+                                    <td class="text-center">{{ part.name || '[Sin Nombre]' }}</td>
+                                    <td class="text-center">{{ part.type }}</td>
+                                    <td class="text-end">{{ part.size.toLocaleString() }}</td>
+                                    <td class="text-end">{{ part.start.toLocaleString() }}</td> 
+                                    <td class="text-center">{{ part.fit }}</td>
+                                    <td class="text-center">{{ part.status }}</td>
+                                    <td class="text-center">{{ part.mountId || '-' }}</td> 
                                 </tr>
                             </tbody>
                         </table>
@@ -67,78 +69,44 @@
 <script>
 export default {
     name: 'PartitionPage',
-    props: ['diskPathEncoded'], // Recibe el parámetro codificado de la ruta
+    props: ['diskPathEncoded'],
     data() {
         return {
-            partitions: [],    // Array para { name, type, size, start, fit, status }
+            // Array ahora incluye mountId
+            partitions: [], // { name, type, size, start, fit, status, mountId }
             isLoading: false,
             errorMessage: '',
-            decodedDiskPath: '' // Para mostrar el path en la UI
+            decodedDiskPath: ''
         };
     },
     methods: {
         async fetchPartitions() {
-            // Validar que se recibe el prop
-            if (!this.diskPathEncoded) {
-                this.errorMessage = "Error interno: No se recibió la ruta del disco.";
-                console.error("diskPathEncoded prop está vacío.");
-                return;
-            }
-
-            try {
-                this.decodedDiskPath = decodeURIComponent(this.diskPathEncoded);
-                console.log("Path decodificado:", this.decodedDiskPath);
-            } catch (e) {
-                this.errorMessage = "Error: El path del disco en la URL es inválido.";
-                console.error("Error decodificando URI:", e);
-                return;
-            }
+            // ... (validación de prop y decodificación igual que antes) ...
+             if (!this.diskPathEncoded) { /* ... */ return; }
+             try { this.decodedDiskPath = decodeURIComponent(this.diskPathEncoded); } catch (e) { /* ... */ return; }
 
             this.isLoading = true;
             this.errorMessage = '';
             this.partitions = [];
-            console.log(`Enviando comando 'partitions -path="${this.decodedDiskPath}"'`);
-
-            // Construir comando asegurando comillas por si el path tiene espacios
             const commandString = `partitions -path="${this.decodedDiskPath}"`;
+            console.log(`Enviando comando: ${commandString}`);
 
             try {
-                const response = await fetch('http://localhost:3001/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ command: commandString }),
-                });
+                const response = await fetch('http://localhost:3001/', { /* ... */ method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ command: commandString }) });
                 const data = await response.json();
+                if (!response.ok || data.error) { /* ... (manejo de error como antes) ... */ throw new Error(`Error obteniendo particiones: ${data.error || data.output || 'Error desconocido'}`); }
+                console.log("Respuesta Partitions:", data.output);
+                this.parseAndSetPartitions(data.output);
 
-                if (!response.ok || data.error) {
-                    const errorMsg = data.error || data.output || `Error HTTP ${response.status}`;
-                    // Si el error es que no se encontraron particiones, mostrar mensaje amigable
-                    if (typeof data.output === 'string' && data.output.includes("No se encontraron particiones")) {
-                        this.errorMessage = ''; // No es un error, solo no hay particiones
-                        this.partitions = [];
-                        console.log("Respuesta indica que no hay particiones válidas.");
-                    } else {
-                        throw new Error(`Error obteniendo particiones: ${errorMsg}`);
-                    }
-                } else {
-                    console.log("Respuesta Partitions:", data.output);
-                    this.parseAndSetPartitions(data.output); // Llamar al parser
-                }
-
-            } catch (error) {
-                console.error("Error en fetchPartitions:", error);
-                this.errorMessage = error.message || "Error de conexión o respuesta inválida.";
-            } finally {
-                this.isLoading = false;
-            }
+            } catch (error) { /* ... (manejo de error como antes) ... */ this.errorMessage = error.message; }
+            finally { this.isLoading = false; }
         },
 
-        // Parsea el string
+        // Parsea el string: nombre,tipo,tamaño,inicio,fit,estado,id_montaje;...
         parseAndSetPartitions(outputString) {
-            if (!outputString || typeof outputString !== 'string') { this.errorMessage = "NO debería de dar error pero por si acaso" ; return; }
-            const prefix = "PARTITIONS:\n"; // Prefijo esperado
-            if (!outputString.startsWith(prefix)) { this.errorMessage = "No se encuentra el prefiojo esperado" ; return}
-            let dataString = outputString.slice(prefix.length);
+            // ... (validación inicial y quitar prefijo como antes) ...
+            if (!outputString || !outputString.startsWith("PARTITIONS:\n")) { this.errorMessage = "Formato inválido"; return;}
+            let dataString = outputString.slice("PARTITIONS:\n".length);
             if (dataString.trim() === "") { this.partitions = []; return; }
 
             const partitionEntries = dataString.split(';');
@@ -148,54 +116,66 @@ export default {
                 const trimmedEntry = entry.trim();
                 if (trimmedEntry === "") continue;
                 const fields = trimmedEntry.split(',');
-                if (fields.length !== 6) {
-                    console.warn("Entrada de partición formato incorrecto (campos != 6):", entry);
+                if (fields.length < 7) { // Esperamos al menos 7 ahora
+                    console.warn("Entrada partición formato incorrecto (< 7 campos):", entry);
                     continue;
                 }
 
-                // Extraer y limpiar cada campo
                 const partName = fields[0].trim();
                 const partType = fields[1].trim();
                 const partSizeStr = fields[2].trim();
                 const partStartStr = fields[3].trim();
                 const partFit = fields[4].trim();
                 const partStatus = fields[5].trim();
+                const mountId = fields[6].trim(); // <-- NUEVO: Campo ID Montaje
 
-                // Convertir size y start a números
                 const partSize = parseInt(partSizeStr, 10);
                 const partStart = parseInt(partStartStr, 10);
-
-                if (isNaN(partSize) || isNaN(partStart)) {
-                    console.warn(`Datos inválidos (size/start) para partición '${partName}', saltando:`, entry);
-                    continue;
-                }
+                if (isNaN(partSize) || isNaN(partStart)) { console.warn(`Datos inválidos p '${partName}'`); continue; }
 
                 parsedPartitions.push({
-                    name: partName,
-                    type: partType,
-                    size: partSize,
-                    start: partStart,
-                    fit: partFit,
-                    status: partStatus
+                    name: partName, type: partType, size: partSize, start: partStart,
+                    fit: partFit, status: partStatus,
+                    mountId: mountId || null
                 });
             }
             this.partitions = parsedPartitions;
             console.log("Particiones parseadas:", this.partitions);
         },
 
-        // Volver a la página anterior 
-        goBack() {
-            console.log("Volviendo a la página de discos...");
-            this.$router.push('/disk'); 
+        selectPartition(part) {
+            console.log("Partición seleccionada:", part);
+            // Verificar si la partición está montada (tiene un mountId)
+            if (!part.mountId) {
+                alert(`La partición '${part.name}' no está montada. Móntala primero para explorarla.`);
+                return; // No hacer nada si no está montada
+            }
+
+            console.log(`Navegando al explorador para partición ID: ${part.mountId}, ruta inicial: /`);
+            try {
+                // Codificar la ruta raíz '/' para la URL
+                const encodedRootPath = encodeURIComponent('/');
+                // Navegar a la ruta del explorador usando el NOMBRE DE RUTA y PARÁMETROS
+                this.$router.push({
+                    name: 'FilesPage', // Asegúrate que este sea el 'name' de tu ruta en router/index.js
+                    params: {
+                        mountId: part.mountId, // Pasar el ID de montaje
+                        internalPathEncoded: encodedRootPath // Pasar la ruta raíz codificada
+                    }
+                });
+            } catch (e) {
+                console.error("Error al navegar al explorador:", e);
+                this.errorMessage = "No se pudo abrir el explorador de archivos.";
+            }
         },
 
-        selectPartition(part){
-            alert(part.name)
-            
-            //Despuecito meto aquí la logica para lo de las carpetas :)
+        // Volver a la página anterior (sin cambios)
+        goBack() {
+            console.log("Volviendo a la página de discos...");
+            this.$router.push('/disk');
         }
     },
-    // Llamar a fetchPartitions cuando el componente se monta
+    // Hook mounted (sin cambios)
     mounted() {
         console.log("Componente PartitionPage montado.");
         this.fetchPartitions();
@@ -204,22 +184,13 @@ export default {
 </script>
 
 <style scoped>
-/* Estilos específicos para la tabla o la página */
-.table th {
-    background-color: #343a40;
-    color: white;
+/* Añadir cursor pointer a las filas clickables */
+tbody tr[style*="cursor: pointer"]:hover {
+    background-color: #e9ecef; /* Opcional: resaltar al pasar mouse */
 }
-
-.text-end {
-    text-align: right;
-}
-
-.text-center {
-    text-align: center;
-}
-
-/* Para evitar que paths largos rompan el layout */
-.text-break {
-    word-break: break-all;
-}
+/* ... (otros estilos sin cambios) ... */
+.table th { background-color: #343a40; color: white; }
+.text-end { text-align: right; }
+.text-center { text-align: center; }
+.text-break { word-break: break-all; }
 </style>

@@ -155,7 +155,6 @@ func commandContent(cmd *CONTENT) ([]string, error) {
 			}
 		}
 	}
-
 	fmt.Printf("Contenido encontrado: %v\n", contentList)
 	return contentList, nil
 }

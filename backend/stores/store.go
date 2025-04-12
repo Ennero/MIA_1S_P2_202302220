@@ -4,6 +4,8 @@ import (
 	structures "backend/structures"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 )
 
 // Carnet de estudiante
@@ -179,4 +181,30 @@ func GetMountedPartitionInfo(id string) (*structures.MBR, *structures.Partition,
 	}
 
 	return &mbr, partition, path, nil
+}
+
+// PARA QUE FUNCIONA LA COSA DEL EXPLORADOR
+func GetMountIDForPartition(checkDiskPath string, checkPartName string) (string, bool) {
+    cleanCheckDiskPath := filepath.Clean(checkDiskPath)
+    cleanCheckPartName := strings.TrimSpace(checkPartName)
+
+    for mountID, mountedDiskPath := range MountedPartitions {
+        if filepath.Clean(mountedDiskPath) == cleanCheckDiskPath {
+            var mbr structures.MBR
+            err := mbr.Deserialize(mountedDiskPath) 
+            if err != nil {
+                fmt.Printf("Advertencia: No se pudo leer MBR de '%s' al buscar ID %s\n", mountedDiskPath, mountID)
+                continue // Saltar este ID montado
+            }
+            part, errPart := mbr.GetPartitionByID(mountID) // Buscar por ID de montaje
+            if errPart == nil && part != nil {
+                nameInMBR := strings.TrimRight(string(part.Part_name[:]), "\x00 ")
+                // Comprobar si el nombre en el MBR coincide con el que buscamos
+                if strings.EqualFold(nameInMBR, cleanCheckPartName) {
+                    return mountID, true 
+                }
+            }
+        }
+    }
+    return "", false
 }
