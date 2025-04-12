@@ -17,7 +17,8 @@
 
                 <div v-else-if="partitions.length > 0" class="card shadow-sm">
                     <div class="card-header bg-secondary text-white">
-                        <i class="bi bi-hdd-rack-fill me-2"></i>Lista de Particiones (Haz clic para explorar si está montada)
+                        <i class="bi bi-hdd-rack-fill me-2"></i>Lista de Particiones (Haz clic para explorar, si está
+                        montada)
                     </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover table-bordered mb-0">
@@ -29,21 +30,20 @@
                                     <th class="text-end">Inicio (byte)</th>
                                     <th class="text-center">Ajuste</th>
                                     <th class="text-center">Estado</th>
-                                    <th class="text-center">ID Montaje</th> 
+                                    <th class="text-center">ID Montaje</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr v-for="part in partitions" :key="part.name + '-' + part.start"
-                                    @click="selectPartition(part)"
-                                    :style="part.mountId ? 'cursor: pointer;' : ''"
+                                    @click="selectPartition(part)" :style="part.mountId ? 'cursor: pointer;' : ''"
                                     :title="part.mountId ? 'Clic para explorar' : 'No montada'">
                                     <td class="text-center">{{ part.name || '[Sin Nombre]' }}</td>
                                     <td class="text-center">{{ part.type }}</td>
                                     <td class="text-end">{{ part.size.toLocaleString() }}</td>
-                                    <td class="text-end">{{ part.start.toLocaleString() }}</td> 
+                                    <td class="text-end">{{ part.start.toLocaleString() }}</td>
                                     <td class="text-center">{{ part.fit }}</td>
                                     <td class="text-center">{{ part.status }}</td>
-                                    <td class="text-center">{{ part.mountId || '-' }}</td> 
+                                    <td class="text-center">{{ part.mountId || '-' }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -72,7 +72,6 @@ export default {
     props: ['diskPathEncoded'],
     data() {
         return {
-            // Array ahora incluye mountId
             partitions: [], // { name, type, size, start, fit, status, mountId }
             isLoading: false,
             errorMessage: '',
@@ -81,9 +80,8 @@ export default {
     },
     methods: {
         async fetchPartitions() {
-            // ... (validación de prop y decodificación igual que antes) ...
-             if (!this.diskPathEncoded) { /* ... */ return; }
-             try { this.decodedDiskPath = decodeURIComponent(this.diskPathEncoded); } catch (e) { /* ... */ return; }
+            if (!this.diskPathEncoded) { /* ... */ return; }
+            try { this.decodedDiskPath = decodeURIComponent(this.diskPathEncoded); } catch (e) { /* ... */ return; }
 
             this.isLoading = true;
             this.errorMessage = '';
@@ -92,20 +90,19 @@ export default {
             console.log(`Enviando comando: ${commandString}`);
 
             try {
-                const response = await fetch('http://localhost:3001/', { /* ... */ method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ command: commandString }) });
+                const response = await fetch('http://localhost:3001/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
                 const data = await response.json();
-                if (!response.ok || data.error) { /* ... (manejo de error como antes) ... */ throw new Error(`Error obteniendo particiones: ${data.error || data.output || 'Error desconocido'}`); }
+                if (!response.ok || data.error) {  throw new Error(`Error obteniendo particiones: ${data.error || data.output || 'Error desconocido'}`); }
                 console.log("Respuesta Partitions:", data.output);
                 this.parseAndSetPartitions(data.output);
 
-            } catch (error) { /* ... (manejo de error como antes) ... */ this.errorMessage = error.message; }
+            } catch (error) {  this.errorMessage = error.message; }
             finally { this.isLoading = false; }
         },
 
-        // Parsea el string: nombre,tipo,tamaño,inicio,fit,estado,id_montaje;...
+        // Parsea
         parseAndSetPartitions(outputString) {
-            // ... (validación inicial y quitar prefijo como antes) ...
-            if (!outputString || !outputString.startsWith("PARTITIONS:\n")) { this.errorMessage = "Formato inválido"; return;}
+            if (!outputString || !outputString.startsWith("PARTITIONS:\n")) { this.errorMessage = "Formato inválido"; return; }
             let dataString = outputString.slice("PARTITIONS:\n".length);
             if (dataString.trim() === "") { this.partitions = []; return; }
 
@@ -127,7 +124,7 @@ export default {
                 const partStartStr = fields[3].trim();
                 const partFit = fields[4].trim();
                 const partStatus = fields[5].trim();
-                const mountId = fields[6].trim(); // <-- NUEVO: Campo ID Montaje
+                const mountId = fields[6].trim(); 
 
                 const partSize = parseInt(partSizeStr, 10);
                 const partStart = parseInt(partStartStr, 10);
@@ -145,9 +142,8 @@ export default {
 
         selectPartition(part) {
             console.log("Partición seleccionada:", part);
-            // Verificar si la partición está montada (tiene un mountId)
             if (!part.mountId) {
-                alert(`La partición '${part.name}' no está montada. Móntala primero para explorarla.`);
+                alert(`La partición '${part.name}' no está montada.`);
                 return; // No hacer nada si no está montada
             }
 
@@ -155,7 +151,6 @@ export default {
             try {
                 // Codificar la ruta raíz '/' para la URL
                 const encodedRootPath = encodeURIComponent('/');
-                // Navegar a la ruta del explorador usando el NOMBRE DE RUTA y PARÁMETROS
                 this.$router.push({
                     name: 'FilesPage', // Asegúrate que este sea el 'name' de tu ruta en router/index.js
                     params: {
@@ -169,13 +164,11 @@ export default {
             }
         },
 
-        // Volver a la página anterior (sin cambios)
         goBack() {
             console.log("Volviendo a la página de discos...");
             this.$router.push('/disk');
         }
     },
-    // Hook mounted (sin cambios)
     mounted() {
         console.log("Componente PartitionPage montado.");
         this.fetchPartitions();
@@ -186,11 +179,25 @@ export default {
 <style scoped>
 /* Añadir cursor pointer a las filas clickables */
 tbody tr[style*="cursor: pointer"]:hover {
-    background-color: #e9ecef; /* Opcional: resaltar al pasar mouse */
+    background-color: #e9ecef;
+    /* Opcional: resaltar al pasar mouse */
 }
+
 /* ... (otros estilos sin cambios) ... */
-.table th { background-color: #343a40; color: white; }
-.text-end { text-align: right; }
-.text-center { text-align: center; }
-.text-break { word-break: break-all; }
+.table th {
+    background-color: #343a40;
+    color: white;
+}
+
+.text-end {
+    text-align: right;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-break {
+    word-break: break-all;
+}
 </style>

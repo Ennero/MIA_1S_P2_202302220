@@ -56,7 +56,6 @@
 </template>
 
 <script>
-// import { computed } from 'vue'; // <--- ELIMINADO: No necesario en Options API
 
 export default {
     name: 'FileExplorerPage',
@@ -66,19 +65,18 @@ export default {
             items: [],
             isLoading: false,
             errorMessage: '',
-            // currentPath: '/' // <--- ELIMINADO: Usaremos la propiedad computada
         };
     },
     computed: {
         sortedItems() {
-            return [...this.items].sort((a, b) => { /* ... (lógica de ordenamiento sin cambios) ... */
+            return [...this.items].sort((a, b) => {
                 if (a.name === '.') return -1; if (b.name === '.') return 1;
                 if (a.name === '..') return -1; if (b.name === '..') return 1;
                 if (a.type !== b.type) { return a.type < b.type ? -1 : 1; }
                 return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
             });
         },
-        // Propiedad computada para obtener el path decodificado (sin cambios en su lógica)
+        // Propiedad computada para obtener el path decodificado
         decodedInternalPath() {
             if (!this.internalPathEncoded) return '/';
             try {
@@ -88,10 +86,7 @@ export default {
                 return decoded;
             } catch (e) {
                 console.error("Error decodificando path:", e);
-                // Podríamos setear un error aquí si this.errorMessage fuera accesible,
-                // pero las computed props no deben tener efectos secundarios.
-                // Devolver un valor por defecto es más seguro.
-                return '/'; // Fallback a raíz
+                return '/'; // Retornar '/' en caso de error
             }
         }
     },
@@ -111,48 +106,67 @@ export default {
             this.isLoading = true;
             this.errorMessage = '';
             this.items = [];
-            // --- CORREGIDO: Usar la propiedad computada ---
-            const pathToList = this.decodedInternalPath;
-            console.log(`Enviando comando 'content -id=${this.mountId} -ruta="${pathToList}"'`);
 
-            // --- CORREGIDO: Usar pathToList ---
-            const commandString = `content -id=${this.mountId} -ruta="${pathToList}"`;
+            const pathToList = this.decodedInternalPath;
+            // Construcción del comando:
+            console.log(`Enviando comando 'content -id=${this.mountId} -ruta="${pathToList}"'`); // <-- YA USA mountId
+            const commandString = `content -id=${this.mountId} -ruta="${pathToList}"`;          // <-- YA USA mountId
 
             try {
+                // Envío del comando al backend
                 const response = await fetch('http://localhost:3001/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
                 const data = await response.json();
 
-                if (!response.ok || data.error) { /* ... (manejo de error igual) ... */ throw new Error(/*...*/); }
-                else { this.parseAndSetItems(data.output); }
+                // Manejo de respuesta (asumiendo que el backend devuelve "nombre,tipo\n...")
+                if (!response.ok || data.error) {
+                    // ... manejo de error ...
+                    const errorMsg = data.error || data.output || `Error HTTP ${response.status}`;
+                    // Manejar caso específico de directorio vacío como no-error
+                    if (typeof data.output === 'string' && data.output.includes("Directorio") && data.output.includes("está vacío")) {
+                        this.errorMessage = ''; this.items = []; console.log(`Directorio '${pathToList}' está vacío.`);
+                    } else { throw new Error(`Error obteniendo contenido: ${errorMsg}`); }
+                } else {
+                    this.parseAndSetItems(data.output); // Parsea la respuesta "nombre,tipo\n..."
+                }
 
-            } catch (error) { /* ... (manejo de error igual) ... */ this.errorMessage = error.message; }
+            } catch (error) { /* ... */ this.errorMessage = error.message; }
             finally { this.isLoading = false; }
         },
 
-        // parseAndSetItems (sin cambios)
-        parseAndSetItems(outputString) { /* ... (código de parseo igual) ... */
+        parseAndSetItems(outputString) {
+            // ... (lógica de parseo para "nombre,tipo\n...") ...
             if (!outputString || typeof outputString !== 'string') { return; }
             const prefix = "CONTENT:\n";
-            if (!outputString.startsWith(prefix)) { return; }
+            if (!outputString.startsWith(prefix)) {alert('hola'); return; }
             let dataString = outputString.slice(prefix.length);
-            if (dataString.trim() === "" || dataString.includes("está vacío")) { this.items = []; return; } // Manejar mensaje de vacío
+            if (dataString.trim() === "" || dataString.includes("está vacío")) { this.items = []; return; }
             const lines = dataString.split('\n'); const parsedItems = [];
-            for (const line of lines) { const trimmedLine = line.trim(); if (trimmedLine === "") continue; const fields = trimmedLine.split(','); if (fields.length !== 2) { continue; } const itemName = fields[0].trim(); const itemType = fields[1].trim(); if (itemName === '.' || itemName === '..') { continue; } parsedItems.push({ name: itemName, type: itemType }); } this.items = parsedItems; console.log("Items parseados:", this.items);
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine === "") continue;
+                const fields = trimmedLine.split(',');
+                if (fields.length !== 2) { continue; } const itemName = fields[0].trim();
+                const itemType = fields[1].trim();
+                if (itemName === '.' || itemName === '..') { continue; } parsedItems.push({ name: itemName, type: itemType });
+            } this.items = parsedItems; console.log("Items parseados:", this.items);
+
         },
 
-        // navigateTo: Modificado para usar decodedInternalPath
+        // Modificado para usar decodedInternalPath
         navigateTo(item) {
             if (item.type !== '0') return;
             console.log(`Navegando a directorio: ${item.name}`);
-            const currentDecodedPath = this.decodedInternalPath; // Usar la computada
+            const currentDecodedPath = this.decodedInternalPath;
             let newPath;
             if (currentDecodedPath === '/') { newPath = '/' + item.name; }
             else { newPath = currentDecodedPath + '/' + item.name; }
-            try { const newEncodedPath = encodeURIComponent(newPath); this.$router.push({ name: 'FileExplorer', params: { mountId: this.mountId, internalPathEncoded: newEncodedPath } }); }
+            try {
+                const newEncodedPath = encodeURIComponent(newPath);
+                this.$router.push({ name: 'FileExplorer', params: { mountId: this.mountId, internalPathEncoded: newEncodedPath } });
+            }
             catch (e) { console.error("Error al navegar a subdirectorio:", e); this.errorMessage = "Error al navegar."; }
         },
 
-        // goUp: Modificado para usar decodedInternalPath
         goUp() {
             const currentDecodedPath = this.decodedInternalPath; // Usar la computada
             if (currentDecodedPath === '/') return;
@@ -163,7 +177,6 @@ export default {
             catch (e) { console.error("Error al navegar hacia arriba:", e); this.errorMessage = "Error al subir nivel."; }
         },
 
-        // goBackToPartitions (sin cambios)
         goBackToPartitions() {
             console.log("Volviendo a la selección de particiones...");
             this.$router.go(-1); // Ir atrás en el historial
@@ -171,14 +184,12 @@ export default {
     },
     mounted() {
         console.log("Componente FileExplorerPage montado.");
-        // Ya no necesitamos setear this.currentPath aquí
         this.fetchDirectoryContent(); // fetchDirectoryContent usará this.decodedInternalPath
     }
 }
 </script>
 
 <style scoped>
-/* ... (estilos sin cambios) ... */
 .table th {
     background-color: #e9ecef;
 }
