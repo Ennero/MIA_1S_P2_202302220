@@ -191,6 +191,7 @@ export default {
 
         selectPartition(part){
             alert(part.name)
+            
             //Despuecito meto aquí la logica para lo de las carpetas :)
         }
     },
