@@ -124,7 +124,7 @@ export default {
           //store.dispatch('login', { username: this.loginForm.username, partitionId: this.loginForm.idPartition });
 
           setTimeout(() => {
-            this.$router.push('/disk'); // Redirigir a la vista de disco después de 1 segundo
+            this.$router.push('/loged'); // Redirigir a la vista de disco después de 1 segundo
           }, 1000); // Espera 1 segundo antes de redirigir
 
         }

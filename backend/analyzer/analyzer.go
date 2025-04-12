@@ -93,6 +93,8 @@ func Analyzer(input string) (string, error) {
 		return commands.ParseJournaling(arguments)
 	case "disks":
 		return commands.ParseDisks(arguments)
+	case "partitions":
+		return commands.ParsePartitions(arguments)
 	default:
 		return "", fmt.Errorf("comando desconocido: %s", command)
 	}

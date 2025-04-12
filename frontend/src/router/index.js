@@ -1,11 +1,12 @@
-// src/router/index.js
+
 import { createRouter, createWebHistory } from 'vue-router';
-// Importa los componentes que actuarán como "páginas"
-// Tu vista principal actual (la consola)
-import inicio from '@/views/StartPage.vue'; // <-- ¡NECESITARÁS MOVER TU LÓGICA DE App.vue AQUÍ!
-// La nueva vista/ventana que quieres mostrar
-import login from '@/views/LoginPage.vue'; // <-- ¡ESTE ES EL NUEVO ARCHIVO QUE CREARÁS!
-import disk from '@/views/DiskPage.vue'; // <-- ¡ESTE ES EL NUEVO ARCHIVO QUE CREARÁS!
+
+import inicio from '@/views/StartPage.vue';
+
+import login from '@/views/LoginPage.vue';
+import disk from '@/views/DiskPage.vue'; 
+import loged from '@/views/LogedPage.vue';
+import partitions from '@/views/PartitionsPage.vue';
 
 const routes = [
     {
@@ -24,10 +25,22 @@ const routes = [
         name: 'disk',
         component: disk
     },
+    {
+        path: '/loged',
+        name: 'loged',
+        component: loged
+    },
+    { 
+        path: '/partitions/:diskPathEncoded',
+        name: 'partitions',
+        component: partitions,
+        props: true
+    }
+
 ];
 
 const router = createRouter({
-    history: createWebHistory(process.env.BASE_URL), // O createWebHashHistory()
+    history: createWebHistory(process.env.BASE_URL), 
     routes
 });
 
