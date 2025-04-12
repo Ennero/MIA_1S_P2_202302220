@@ -1,145 +1,171 @@
 package commands
 
 import (
-	stores "backend/stores"
-	structures "backend/structures"
 	"errors"
 	"fmt"
+	"path/filepath" 
 	"regexp"
 	"strings"
+	stores "backend/stores"
+	structures "backend/structures"
 )
 
-func ParseCat(tokens []string) (string, error) {
-	// Verificar que se proporcionó al menos un argumento
-	if len(tokens) == 0 {
-		return "", fmt.Errorf("faltan parámetros: se requiere al menos un argumento -fileN=[/ruta | \"/ruta\"]")
-	}
-
-	// Unir tokens en una sola cadena 
-	args := strings.Join(tokens, " ")
-	fmt.Printf("Argumentos completos para cat: %s\n", args)
-
-	re := regexp.MustCompile(`-file\d+=([^\s]+)`)
-
-	// Buscar todas las coincidencias y subcoincidencias
-	matches := re.FindAllStringSubmatch(args, -1)
-	fmt.Printf("Coincidencias con formato -fileN=... encontradas: %v\n", matches)
-
-	// Si no se encontró NINGUNA coincidencia con el formato esperado
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no se encontraron argumentos con el formato -fileN=[/ruta | \"/ruta\"]")
-	}
-
-	var paths []string
-
-	// Extraer los paths de los grupos capturados
-	for _, match := range matches {
-		if len(match) > 1 {
-			value := match[1] // Valor crudo
-			fmt.Printf("  Valor extraído de '%s': '%s'\n", match[0], value)
-
-			path := value
-			// Verificar si el valor capturado empieza Y termina con comillas dobles
-			if len(path) >= 2 && strings.HasPrefix(path, "\"") && strings.HasSuffix(path, "\"") {
-				path = strings.Trim(path, "\"")
-				fmt.Printf("    Path sin comillas: '%s'\n", path)
-			}
-
-			if path == "" {
-				return "", fmt.Errorf("el path proporcionado en '%s' no puede ser vacío después de quitar comillas", match[0])
-			}
-
-			if !strings.HasPrefix(path, "/") {
-				return "", fmt.Errorf("el path '%s' (de '%s') debe ser absoluto (empezar con /)", path, match[0])
-			}
-			paths = append(paths, path)
-		} else {
-			fmt.Printf("  Advertencia: Coincidencia inválida encontrada (sin grupo capturado?): %v\n", match)
-		}
-	}
-
-	// Si hubo matches pero no se extrajeron paths válidos (muy raro con esta lógica)
-	if len(paths) == 0 {
-		return "", fmt.Errorf("no se pudieron extraer rutas válidas de los argumentos proporcionados")
-	}
-
-	fmt.Println("Paths finales a procesar:", paths)
-
-	// Llamar a la lógica del comando con los paths extraídos
-	texto, err := commandCat(paths)
-	if err != nil {
-		return "", err 
-	}
-
-	finalOutput := strings.TrimSuffix(texto, "\n")
-	return fmt.Sprintf("CAT: Contenido de el/los archivo(s):\n%s", finalOutput), nil
+type CAT struct {
+	path string 
+	id   string 
 }
 
-func commandCat(paths []string) (string, error) {
-	var salidaBuilder strings.Builder
+func ParseCat(tokens []string) (string, error) {
+	cmd := &CAT{}
+	processedKeys := make(map[string]bool)
 
-	var partitionID string
-	if stores.Auth.IsAuthenticated() {
-		partitionID = stores.Auth.GetPartitionID()
-	} else {
-		return "", errors.New("no se ha iniciado sesión en ninguna partición")
+	pathRegex := regexp.MustCompile(`^(?i)-path=(?:"([^"]+)"|([^\s"]+))$`)
+	idRegex := regexp.MustCompile(`^(?i)-id=(?:"([^"]+)"|([^\s"]+))$`)
+
+	if len(tokens) == 0 {
+		return "", errors.New("faltan parámetros: se requiere -path=<archivo> y opcionalmente -id=<mount_id>")
 	}
 
-	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID) // Usar la función unificada
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		fmt.Printf("Procesando token CAT: '%s'\n", token)
+		var match []string
+		var key string
+		var value string
+		matched := false
+
+		if match = pathRegex.FindStringSubmatch(token); match != nil {
+			key = "-path"
+			if match[1] != "" {
+				value = match[1]
+			} else {
+				value = match[2]
+			}
+			matched = true
+		} else if match = idRegex.FindStringSubmatch(token); match != nil {
+			key = "-id"
+			if match[1] != "" {
+				value = match[1]
+			} else {
+				value = match[2]
+			}
+			matched = true
+		}
+
+		if !matched {
+			return "", fmt.Errorf("parámetro inválido CAT: '%s'. Se esperaba -path= o -id=", token)
+		}
+		fmt.Printf("  Match CAT!: key='%s', value='%s'\n", key, value)
+		if processedKeys[key] {
+			return "", fmt.Errorf("parámetro duplicado CAT: %s", key)
+		}
+		processedKeys[key] = true
+		if value == "" {
+			return "", fmt.Errorf("valor vacío para %s", key)
+		}
+
+		switch key {
+		case "-path":
+			if !strings.HasPrefix(value, "/") {
+				return "", fmt.Errorf("el path '%s' debe ser absoluto", value)
+			}
+			cleanedPath := filepath.Clean(value)
+			if value == "/" && cleanedPath == "." {
+				cleanedPath = "/"
+			}
+			if cleanedPath == "/" {
+				return "", errors.New("no se puede usar cat en el directorio raíz '/'")
+			}
+			cmd.path = cleanedPath
+		case "-id":
+			cmd.id = value
+		}
+	}
+
+	// Verificar obligatorio -path
+	if !processedKeys["-path"] {
+		return "", errors.New("falta el parámetro requerido: -path")
+	}
+
+	fileContent, err := commandCat(cmd)
 	if err != nil {
-		return "", fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
+		return "", err
 	}
 
-	// Validar superbloque por si acaso
+	return fileContent, nil
+}
+
+func commandCat(cmd *CAT) (string, error) {
+
+	var targetPartitionID string
+	var diskPath string
+	var partitionSuperblock *structures.SuperBlock
+	var err error
+
+	// Determinar partición
+	if cmd.id != "" {
+		targetPartitionID = cmd.id
+		fmt.Printf("Intentando leer archivo '%s' en partición especificada '%s'\n", cmd.path, targetPartitionID)
+		partitionSuperblock, _, diskPath, err = stores.GetMountedPartitionSuperblock(targetPartitionID)
+		if err != nil {
+			return "", fmt.Errorf("error obteniendo partición '%s': %w", targetPartitionID, err)
+		}
+	} else {
+		fmt.Printf("Intentando leer archivo '%s' en partición activa\n", cmd.path)
+		if !stores.Auth.IsAuthenticated() {
+			return "", errors.New("cat requiere sesión si no se especifica -id")
+		}
+		_, _, targetPartitionID = stores.Auth.GetCurrentUser()
+		if targetPartitionID == "" {
+			return "", errors.New("no hay partición activa y no se especificó -id")
+		}
+		partitionSuperblock, _, diskPath, err = stores.GetMountedPartitionSuperblock(targetPartitionID)
+		if err != nil {
+			return "", fmt.Errorf("error obteniendo partición activa '%s': %w", targetPartitionID, err)
+		}
+	}
+
+	// Validar SB
 	if partitionSuperblock.S_magic != 0xEF53 {
-		return "", fmt.Errorf("magia del superbloque inválida (0x%X) para la partición '%s'", partitionSuperblock.S_magic, partitionID)
+		return "", fmt.Errorf("magia inválida en partición '%s'", targetPartitionID)
 	}
 	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
-		return "", fmt.Errorf("tamaño de inodo/bloque inválido en superbloque partición '%s'", partitionID)
+		return "", fmt.Errorf("tamaño inodo/bloque inválido en '%s'", targetPartitionID)
 	}
 
-	for i, path := range paths {
-		fmt.Printf("Procesando path [%d]: %s\n", i+1, path)
-
-		if !strings.HasPrefix(path, "/") {
-			return "", fmt.Errorf("error interno: path '%s' no es absoluto", path)
-		}
-
-		// Buscar Inodo
-		inodeIndex, inode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, path)
-		if errFind != nil {
-			// Si no se encuentra, DEBE continuar con los otros archivos si hay más
-			fmt.Printf("Error: No se encontró el archivo '%s': %v\n", path, errFind)
-			salidaBuilder.WriteString(fmt.Sprintf("cat: %s: No such file or directory\n", path))
-			continue
-		}
-
-		// Verificar si es archivo
-		if inode.I_type[0] != '1' {
-			fmt.Printf("Error: '%s' (inodo %d) no es un archivo (tipo: %c)\n", path, inodeIndex, inode.I_type[0])
-			salidaBuilder.WriteString(fmt.Sprintf("cat: %s: Is a directory\n", path))
-			continue
-		}
-
-		fmt.Printf("Archivo '%s' encontrado (inodo %d, tamaño %d bytes).\n", path, inodeIndex, inode.I_size)
-
-		// Leer Contenido
-		content, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, inode)
-		if errRead != nil {
-			fmt.Printf("Error leyendo contenido de '%s': %v\n", path, errRead)
-			salidaBuilder.WriteString(fmt.Sprintf("cat: %s: Read error: %v\n", path, errRead))
-			continue
-		}
-
-		if content == "" {
-			fmt.Printf("Archivo '%s' está vacío.\n", path)
-
-		}
-
-		// Añadir contenido al resultado
-		fmt.Printf("Contenido leído para '%s': %d bytes\n", path, len(content))
-		salidaBuilder.WriteString(content)
+	// Encontrar Inodo del Archivo
+	fmt.Printf("Buscando inodo para archivo: %s (en disco %s)\n", cmd.path, diskPath)
+	_, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, diskPath, cmd.path)
+	if errFind != nil {
+		return "", fmt.Errorf("error: no se encontró el archivo '%s': %w", cmd.path, errFind)
 	}
 
-	return salidaBuilder.String(), nil // Retornar contenido acumulado
+	// Verificar que es un ARCHIVO
+	if targetInode.I_type[0] != '1' {
+		return "", fmt.Errorf("error: la ruta '%s' no corresponde a un archivo (es tipo %c)", cmd.path, targetInode.I_type[0])
+	}
+
+	// Verificar Permiso de Lectura
+	currentUser, userGIDStr, _ := stores.Auth.GetCurrentUser()
+	if !stores.Auth.IsAuthenticated() && currentUser != "root" {
+		return "", errors.New("se requiere sesión para verificar permisos")
+	}
+	fmt.Printf("Verificando permiso de lectura para usuario '%s' en '%s'...\n", currentUser, cmd.path)
+	if !checkPermissions(currentUser, userGIDStr, 'r', targetInode, partitionSuperblock, diskPath) { // Asume checkPermissions existe
+		return "", fmt.Errorf("permiso denegado: usuario '%s' no puede leer '%s'", currentUser, cmd.path)
+	}
+	fmt.Println("Permiso de lectura concedido.")
+
+	// Leer Contenido del Archivo
+	fmt.Printf("Leyendo contenido del archivo (inodo %d)...\n", targetInode.I_uid) // UID no es índice, pero es info útil
+	content, errRead := structures.ReadFileContent(partitionSuperblock, diskPath, targetInode)
+	if errRead != nil {
+		return "", fmt.Errorf("error leyendo contenido de '%s': %w", cmd.path, errRead)
+	}
+
+	fmt.Printf("Contenido leído: %d bytes\n", len(content))
+	return content, nil 
 }

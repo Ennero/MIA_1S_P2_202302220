@@ -154,8 +154,8 @@ export default {
                 this.$router.push({
                     name: 'FilesPage', // Asegúrate que este sea el 'name' de tu ruta en router/index.js
                     params: {
-                        mountId: part.mountId, // Pasar el ID de montaje
-                        internalPathEncoded: encodedRootPath // Pasar la ruta raíz codificada
+                        mountId: part.mountId, 
+                        internalPathEncoded: encodedRootPath 
                     }
                 });
             } catch (e) {
@@ -177,13 +177,10 @@ export default {
 </script>
 
 <style scoped>
-/* Añadir cursor pointer a las filas clickables */
 tbody tr[style*="cursor: pointer"]:hover {
     background-color: #e9ecef;
-    /* Opcional: resaltar al pasar mouse */
 }
 
-/* ... (otros estilos sin cambios) ... */
 .table th {
     background-color: #343a40;
     color: white;

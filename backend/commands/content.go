@@ -1,30 +1,25 @@
 package commands
 
 import (
+	stores "backend/stores"
+	structures "backend/structures"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
-	// "os" // Ya no se necesita aquí si ParseContent no valida path físico
-	// "time" // No necesario
-
-	stores "backend/stores"
-	structures "backend/structures"
+	"time"
 )
 
-// CONTENT struct actualizada para incluir ID opcional
 type CONTENT struct {
-	id   string // ID de la partición (opcional, desde -id)
-	ruta string // Path al directorio DENTRO DEL FS (obligatorio, desde -ruta)
+	id   string // ID de la partición (opcional)
+	ruta string
 }
 
-// ParseContent: MODIFICADO para aceptar -ruta (obligatorio) y -id (opcional)
 func ParseContent(tokens []string) (string, error) {
 	cmd := &CONTENT{}
 	processedKeys := make(map[string]bool)
 
-	// Regex para los parámetros esperados
 	rutaRegex := regexp.MustCompile(`^(?i)-ruta=(?:"([^"]+)"|([^\s"]+))$`)
 	idRegex := regexp.MustCompile(`^(?i)-id=(?:"([^"]+)"|([^\s"]+))$`)
 
@@ -32,7 +27,6 @@ func ParseContent(tokens []string) (string, error) {
 		return "", errors.New("faltan parámetros: se requiere -ruta=<directorio_interno> y opcionalmente -id=<mount_id>")
 	}
 
-	// Iterar sobre tokens
 	for _, token := range tokens {
 		token = strings.TrimSpace(token)
 		if token == "" {
@@ -93,13 +87,12 @@ func ParseContent(tokens []string) (string, error) {
 			// Aquí podríamos validar el formato del ID si quisiéramos
 			cmd.id = value
 		}
-	} // Fin for tokens
+	}
 
 	// Verificar obligatorio -ruta
 	if !processedKeys["-ruta"] {
 		return "", errors.New("falta el parámetro requerido: -ruta")
 	}
-	// -id es opcional, no se valida aquí
 
 	// Llamar a la lógica del comando
 	contentList, err := commandContent(cmd)
@@ -111,87 +104,54 @@ func ParseContent(tokens []string) (string, error) {
 	idMsg := cmd.id
 	if idMsg == "" {
 		idMsg = stores.Auth.GetPartitionID() + " (activa)"
-	} // Indicar qué partición se usó
+	}
 	if len(contentList) == 0 {
 		return fmt.Sprintf("CONTENT: Directorio '%s' en partición '%s' está vacío.", cmd.ruta, idMsg), nil
 	}
 	return fmt.Sprintf("CONTENT:\n%s", strings.Join(contentList, "\n")), nil
 }
 
-// commandContent: MODIFICADO para usar cmd.id o el de la sesión
+// commandContent: MODIFICADO para devolver más información
 func commandContent(cmd *CONTENT) ([]string, error) {
+	fmt.Printf("Intentando listar contenido detallado de '%s'\n", cmd.ruta)
 
-	var targetPartitionID string
-	var diskPath string
-	var partitionSuperblock *structures.SuperBlock
-	var err error
-
-	// Determinar qué partición usar (la del -id o la de la sesión)
-	if cmd.id != "" {
-		// Se especificó un ID, usar ese
-		targetPartitionID = cmd.id
-		fmt.Printf("Intentando listar contenido de '%s' en partición especificada '%s'\n", cmd.ruta, targetPartitionID)
-		// Obtener SB y path para el ID especificado
-		partitionSuperblock, _, diskPath, err = stores.GetMountedPartitionSuperblock(targetPartitionID)
-		if err != nil {
-			// Error si el ID especificado no está montado o no se puede leer
-			return nil, fmt.Errorf("error obteniendo partición especificada con id '%s': %w", targetPartitionID, err)
-		}
-	} else {
-		// No se especificó ID, usar la partición de la sesión actual
-		fmt.Printf("Intentando listar contenido de '%s' en partición activa\n", cmd.ruta)
-		if !stores.Auth.IsAuthenticated() {
-			return nil, errors.New("comando content requiere inicio de sesión si no se especifica -id")
-		}
-		_, _, targetPartitionID = stores.Auth.GetCurrentUser() // Obtener ID de sesión
-		if targetPartitionID == "" {
-			return nil, errors.New("no hay partición activa en la sesión actual y no se especificó -id")
-		}
-		fmt.Printf("  Usando partición activa: %s\n", targetPartitionID)
-		partitionSuperblock, _, diskPath, err = stores.GetMountedPartitionSuperblock(targetPartitionID)
-		if err != nil {
-			return nil, fmt.Errorf("error obteniendo partición activa '%s': %w", targetPartitionID, err)
-		}
+	// 1. Auth, Get SB, Get DiskPath... (igual que antes)
+	if !stores.Auth.IsAuthenticated() {
+		return nil, errors.New("content requiere login")
 	}
-
-	// Validar SB (común para ambos casos)
+	currentUser, userGIDStr, partitionID := stores.Auth.GetCurrentUser()
+	if cmd.id != "" {
+		partitionID = cmd.id
+	} // Usar ID de cmd si se proporciona
+	partitionSuperblock, _, diskPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return nil, fmt.Errorf("error obteniendo partición '%s': %w", partitionID, err)
+	}
 	if partitionSuperblock.S_magic != 0xEF53 {
-		return nil, fmt.Errorf("magia de superbloque inválida en partición '%s'", targetPartitionID)
+		return nil, errors.New("magia SB inválida")
 	}
 	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
-		return nil, fmt.Errorf("tamaño de inodo/bloque inválido en '%s'", targetPartitionID)
+		return nil, errors.New("tamaño inodo/bloque inválido")
 	}
 
-	// --- A partir de aquí, la lógica es la misma, usando el SB y diskPath obtenidos ---
-
-	// Encontrar Inodo del Directorio (-ruta)
-	fmt.Printf("Buscando inodo para directorio interno: %s (en disco %s)\n", cmd.ruta, diskPath)
+	// 2. Find Target Dir Inode... (igual que antes)
 	targetInodeIndex, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, diskPath, cmd.ruta)
 	if errFind != nil {
-		return nil, fmt.Errorf("error: no se encontró el directorio '%s' en partición '%s': %w", cmd.ruta, targetPartitionID, errFind)
+		return nil, fmt.Errorf("no se encontró dir '%s': %w", cmd.ruta, errFind)
 	}
-
-	// Verificar que es un Directorio
 	if targetInode.I_type[0] != '0' {
-		return nil, fmt.Errorf("error: la ruta '%s' no es un directorio (tipo %c)", cmd.ruta, targetInode.I_type[0])
+		return nil, fmt.Errorf("ruta '%s' no es directorio", cmd.ruta)
 	}
-	fmt.Printf("Directorio encontrado (inodo %d)\n", targetInodeIndex)
 
-	// Verificar Permiso de Lectura (usando el usuario de la sesión actual)
-	currentUser, userGIDStr, _ := stores.Auth.GetCurrentUser()   // Necesitamos el usuario actual para permisos
-	if !stores.Auth.IsAuthenticated() && currentUser != "root" { // Doble chequeo si no hay sesión y no es root implícito
-		return nil, errors.New("se requiere sesión para verificar permisos (usuario no root)")
+	// 3. Check Read Permission... (igual que antes)
+	if !checkPermissions(currentUser, userGIDStr, 'r', targetInode, partitionSuperblock, diskPath) {
+		return nil, fmt.Errorf("permiso denegado lectura dir '%s'", cmd.ruta)
 	}
-	fmt.Printf("Verificando permiso de lectura para usuario '%s' en '%s'...\n", currentUser, cmd.ruta)
-	if !checkPermissions(currentUser, userGIDStr, 'r', targetInode, partitionSuperblock, diskPath) { // Asume checkPermissions existe
-		return nil, fmt.Errorf("permiso denegado: usuario '%s' no puede leer '%s'", currentUser, cmd.ruta)
-	}
-	fmt.Println("Permiso de lectura concedido.")
 
-	// Leer Contenido del Directorio
-	fmt.Println("Leyendo entradas del directorio...")
-	contentListWithType := []string{}
-	// TODO: Implementar indirección
+	// 4. Leer Contenido, OBTENER TIPO, TAMAÑO, FECHA, PERMISOS
+	fmt.Println("Leyendo entradas detalladas del directorio...")
+	contentListDetailed := []string{} // Lista para guardar strings formateados
+	// TODO: Implementar indirección si es necesario
 	for i := 0; i < 12; i++ { // Solo directos
 		blockPtr := targetInode.I_block[i]
 		if blockPtr == -1 || blockPtr < 0 || blockPtr >= partitionSuperblock.S_blocks_count {
@@ -201,37 +161,57 @@ func commandContent(cmd *CONTENT) ([]string, error) {
 		folderBlock := structures.FolderBlock{}
 		blockOffset := int64(partitionSuperblock.S_block_start + blockPtr*partitionSuperblock.S_block_size)
 		if err := folderBlock.Deserialize(diskPath, blockOffset); err != nil {
-			fmt.Printf("  Advertencia: Error leyendo bloque %d dir %d: %v.\n", blockPtr, targetInodeIndex, err)
+			fmt.Printf("  Adv: Error leyendo bloque %d dir %d: %v\n", blockPtr, targetInodeIndex, err)
 			continue
 		}
 
 		for j := range folderBlock.B_content {
 			entry := folderBlock.B_content[j]
-			if entry.B_inodo != -1 {
+			if entry.B_inodo != -1 { // Entrada válida
 				entryName := strings.TrimRight(string(entry.B_name[:]), "\x00")
 				if entryName != "." && entryName != ".." { // Omitir . y ..
+
+					// --- OBTENER INFO DEL INODO HIJO ---
 					childInodeIndex := entry.B_inodo
 					childType := byte('?')
+					childSize := int32(-1)         // Tamaño -1 si no se puede leer
+					childPerms := "---"            // Permisos por defecto si no se puede leer
+					childMtimeStr := "Fecha desc." // Fecha por defecto
+
 					if childInodeIndex >= 0 && childInodeIndex < partitionSuperblock.S_inodes_count {
 						childInode := &structures.Inode{}
 						childInodeOffset := int64(partitionSuperblock.S_inode_start + childInodeIndex*partitionSuperblock.S_inode_size)
 						if err := childInode.Deserialize(diskPath, childInodeOffset); err == nil {
+							// Lectura exitosa del inodo hijo
 							childType = childInode.I_type[0]
+							childSize = childInode.I_size
+							childPerms = string(childInode.I_perm[:])
+							// Formatear fecha de modificación
+							mtime := time.Unix(int64(childInode.I_mtime), 0)
+							childMtimeStr = mtime.Format("2006-01-02 15:04") // Formato YYYY-MM-DD HH:MM
+
 						} else {
-							fmt.Printf(" Adv: No se pudo leer inodo hijo %d ('%s') tipo: %v\n", childInodeIndex, entryName, err)
+							fmt.Printf(" Adv: No leer inodo hijo %d ('%s'): %v\n", childInodeIndex, entryName, err)
 						}
 					} else {
 						fmt.Printf(" Adv: Índice inodo inválido %d para '%s'.\n", childInodeIndex, entryName)
 					}
-					formattedEntry := fmt.Sprintf("%s,%c", entryName, childType)
-					contentListWithType = append(contentListWithType, formattedEntry)
+					// --- FIN OBTENER INFO ---
+
+					// Formato NUEVO: "nombre,tipo,fecha_modif,tamaño,permisos"
+					formattedEntry := fmt.Sprintf("%s,%c,%s,%d,%s",
+						entryName,
+						childType,
+						childMtimeStr,
+						childSize,
+						childPerms,
+					)
+					contentListDetailed = append(contentListDetailed, formattedEntry)
 				}
 			}
 		}
-	}
+	} // Fin for bloques
 
-	fmt.Printf("Contenido encontrado (nombre,tipo): %v\n", contentListWithType)
-	return contentListWithType, nil
+	fmt.Printf("Contenido detallado encontrado: %v\n", contentListDetailed)
+	return contentListDetailed, nil // Devolver lista de strings formateados
 }
-
-// --- Faltan checkPermissions y otras helpers ---

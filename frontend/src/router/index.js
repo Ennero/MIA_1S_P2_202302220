@@ -8,18 +8,18 @@ import disk from '@/views/DiskPage.vue';
 import loged from '@/views/LogedPage.vue';
 import partitions from '@/views/PartitionsPage.vue';
 import FilesPage from '@/views/FilesPage.vue';
+import FileView from '@/views/FileView.vue';
 
 const routes = [
     {
-        path: '/', // La ruta raíz mostrará la consola
+        path: '/', 
         name: 'inicio',
         component: inicio
     },
     {
-        path: '/login', // La URL para tu nueva ventana/vista
+        path: '/login', 
         name: 'login',
         component: login
-        // Puedes añadir más rutas aquí
     },
     {
         path: '/disk',
@@ -49,7 +49,14 @@ const routes = [
             // %2F es '/' codificado para URL
             return { path: `/FilesPage/${to.params.mountId}/%2F` }
         }
+    },
+    {
+        path: '/view/:mountId/:filePathEncoded(.*)', // Captura cualquier ruta después de /view/
+        name: 'FileView',
+        component: FileView,
+        props: true // Pasa mountId e internalPathEncoded como props
     }
+
 
 
 ];
