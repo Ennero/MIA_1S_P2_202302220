@@ -28,20 +28,20 @@
                         <table class="table table-striped table-hover table-bordered mb-0">
                             <thead class="table-dark"> 
                                 <tr>
-                                    <th>Nombre</th>
-                                    <th>Tipo</th>
-                                    <th>Tamaño (bytes)</th>
+                                    <th class="text-center">Nombre</th>
+                                    <th class="text-center">Tipo</th>
+                                    <th class="text-center">Tamaño (bytes)</th>
                                     <th class="text-center">Ajuste</th>
                                     <th class="text-center">Estado</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr v-for="part in partitions" :key="part.name + '-' + part.start">
-                                    <td>{{ part.name || '[Sin Nombre]' }}</td>
-                                    <td class="text-center">{{ part.type }}</td>
-                                    <td class="text-end">{{ part.size.toLocaleString() }}</td>
-                                    <td class="text-center">{{ part.fit }}</td>
-                                    <td class="text-center">{{ part.status }}</td>
+                                    <td class="text-center" @click="selectPartition(part)" >{{ part.name || '[Sin Nombre]' }}</td>
+                                    <td class="text-center" @click="selectPartition(part)">{{ part.type }}</td>
+                                    <td class="text-center" @click="selectPartition(part)">{{ part.size.toLocaleString() }}</td>
+                                    <td class="text-center" @click="selectPartition(part)">{{ part.fit }}</td>
+                                    <td class="text-center" @click="selectPartition(part)">{{ part.status }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -187,6 +187,11 @@ export default {
         goBack() {
             console.log("Volviendo a la página de discos...");
             this.$router.push('/disk'); 
+        },
+
+        selectPartition(part){
+            alert(part.name)
+            //Despuecito meto aquí la logica para lo de las carpetas :)
         }
     },
     // Llamar a fetchPartitions cuando el componente se monta
