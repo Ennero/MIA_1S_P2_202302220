@@ -201,7 +201,6 @@ export default {
 /* Estilos específicos para la tabla o la página */
 .table th {
     background-color: #343a40;
-    /* Fondo oscuro para encabezados */
     color: white;
 }
 

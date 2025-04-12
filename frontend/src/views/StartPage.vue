@@ -173,12 +173,10 @@ export default {
                         if (data.output && data.output.trim() !== "") {
                             this.salida += `${data.output}\n`;
                         } else {
-                            // Si no hay output, al menos indicar que se completó ok (opcional)
                             this.salida += `(OK)\n`;
                         }
                     }
                 } catch (error) {
-                    // Error de red o al parsear JSON
                     console.error("Error en fetch:", error);
                     this.salida += `❌ Error de conexión o respuesta inválida del backend.\n`;
                     hasErrors = true;
@@ -190,7 +188,6 @@ export default {
 
         },
         limpiar() {
-            // ... (tu código de limpiar sin cambios)
             this.entrada = "";
             this.salida = "";
             this.fileError = "";
