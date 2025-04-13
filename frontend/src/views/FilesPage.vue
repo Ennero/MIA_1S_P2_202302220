@@ -12,11 +12,6 @@
                         <span>Ruta Actual: <strong class="text-success">{{ decodedInternalPath }}</strong></span>
                     </div>
                     <div class="card-body">
-                        <button class="btn btn-sm btn-outline-secondary mb-3" @click="goUp"
-                            :disabled="decodedInternalPath === '/' || isLoading">
-                            <i class="bi bi-arrow-up-circle me-1"></i> Subir Nivel (..)
-                        </button>
-
                         <div v-if="isLoading" class="text-center my-4">...</div>
                         <div v-else-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
 
@@ -141,7 +136,7 @@ export default {
         parseAndSetItems(outputString) {
             if (!outputString || typeof outputString !== 'string') { return; }
             const prefix = "CONTENT:\n";
-            if (!outputString.startsWith(prefix)) { this.errorMessage = "Formato inválido"; return; }
+            if (!outputString.startsWith(prefix)) { return; }
             let dataString = outputString.slice(prefix.length);
             if (dataString.trim() === "" || dataString.includes("está vacío")) { this.items = []; return; }
 
@@ -211,24 +206,10 @@ export default {
             } catch (e) { console.error("Error al navegar a subdirectorio:", e); this.errorMessage = "Error al navegar."; }
         },
 
-        goUp() {
-            const currentDecodedPath = this.decodedInternalPath;
-            if (currentDecodedPath === '/') return;
-            let lastSlash = currentDecodedPath.lastIndexOf('/');
-            let newPath = (lastSlash > 0) ? currentDecodedPath.substring(0, lastSlash) : "/";
-            console.log(`Subiendo a directorio padre: ${newPath}`);
-            try {
-                const newEncodedPath = encodeURIComponent(newPath);
-                this.$router.push({
-                    name: 'FilesPage',
-                    params: { mountId: this.mountId, internalPathEncoded: newEncodedPath }
-                });
-            } catch (e) { console.error("Error al navegar hacia arriba:", e); this.errorMessage = "Error al subir nivel."; }
-        },
 
         goBackToPartitions() {
             console.log("Volviendo a la selección de particiones...");
-            this.$router.go(-1); // Ir atrás en el historial
+            this.$router.go(-1); // Ir atrás
         },
         formatSize(bytes) {
             if (bytes < 0 || typeof bytes !== 'number' || isNaN(bytes)) return '-';
@@ -244,7 +225,7 @@ export default {
 
     },
     mounted() {
-        console.log("Componente FileExplorerPage montado.");
+        console.log("Componente montado.");
         this.fetchDirectoryContent();
     }
 }
