@@ -71,7 +71,6 @@
                     </div>
 
                     <div class="card-body p-4">
-                        <!-- Se eliminó form-floating y su label -->
                         <textarea v-model="salida" class="form-control bg-dark text-light font-monospace"
                             style="height: 180px" id="outputTextarea" readonly
                             placeholder="La salida aparecerá aquí..."></textarea>
@@ -196,7 +195,6 @@ export default {
 
         },
         limpiar() {
-            // ... (tu código de limpiar sin cambios)
             this.entrada = "";
             this.salida = "";
             this.fileError = "";
@@ -205,7 +203,6 @@ export default {
         },
 
         //Aquí se va a cerrar la sesión
-
         async cerrarSesion() {
             console.log("Cerrando sesión...");
             this.salida = "Cerrando sesión..."; // Feedback visual
@@ -234,8 +231,6 @@ export default {
             console.log("Redirigiendo a discos...");
             const url = "/disk"; // URL de inicio de sesión
             this.$router.push(url); // Redirigir a la URL de inicio de sesión
-
-            //Aquí mandar al backend el comando de logout
 
         }
     },

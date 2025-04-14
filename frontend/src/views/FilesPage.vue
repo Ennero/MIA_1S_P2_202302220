@@ -147,7 +147,7 @@ export default {
                 const trimmedLine = line.trim();
                 if (trimmedLine === "") continue;
                 const fields = trimmedLine.split(',');
-                // --- Espera 5 campos ---
+
                 if (fields.length !== 5) {
                     console.warn("Entrada formato incorrecto (campos != 5):", line);
                     continue;

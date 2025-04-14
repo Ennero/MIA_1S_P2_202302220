@@ -65,7 +65,6 @@ func (journal *Journal) Deserialize(path string, offset int64) error {
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 

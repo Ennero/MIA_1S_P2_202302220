@@ -13,7 +13,6 @@ import (
 	utils "backend/utils"
 )
 
-// Move struct (como la tenías)
 type Move struct {
 	path    string // Path actual absoluto del archivo/carpeta origen
 	destino string // Path absoluto del directorio destino
@@ -121,7 +120,6 @@ func ParseMove(tokens []string) (string, error) {
 	return fmt.Sprintf("MOVE: '%s' movido a '%s' correctamente.", cmd.path, cmd.destino), nil
 }
 
-// commandMove: Lógica para mover archivo/carpeta
 func commandMove(cmd *Move) error {
 	fmt.Printf("Intentando mover '%s' a '%s'\n", cmd.path, cmd.destino)
 

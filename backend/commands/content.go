@@ -111,7 +111,6 @@ func ParseContent(tokens []string) (string, error) {
 	return fmt.Sprintf("CONTENT:\n%s", strings.Join(contentList, "\n")), nil
 }
 
-// commandContent: MODIFICADO para devolver más información
 func commandContent(cmd *CONTENT) ([]string, error) {
 	fmt.Printf("Intentando listar contenido detallado de '%s'\n", cmd.ruta)
 

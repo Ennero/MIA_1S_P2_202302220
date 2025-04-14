@@ -78,253 +78,897 @@ El sistema sigue una arquitectura **Cliente-Servidor** desacoplada:
   - Botones para "Cargar Archivo", "Ejecutar" y "Limpiar".
   - Área de texto (solo lectura) para mostrar la salida de los comandos y mensajes del sistema.
 - Comunicación: Se comunica con el backend a través de peticiones HTTP (específicamente POST) a una API REST definida por el backend. Envía los comandos como un string dentro de un objeto JSON { "command": "..." }. Recibe las respuestas del backend (salida o errores) también en formato JSON.
-- Flujo: El frontend es responsable de la interacción con el usuario, la validación básica de entrada (ej. extensión .mias), y la presentación de resultados. Envía los comandos línea por línea al backend para su procesamiento.
-
+- Flujo: El frontend es responsable de la interacción con el usuario.
+  - **Vista principal:** Permite la validación básica de entrada (ej. extensión .mias), y la presentación de resultados. Envía los comandos línea por línea al backend para su procesamiento. En la parte inferior, la consola muestra los resultados de los comandos ejecutados y proporciona información sobre el estado del sistema de archivos.
 ```vue
-<template>
-  <div id="app" class="container py-5">
-    <div class="row justify-content-center">
-      <div class="col-md-10">
-        <!-- Cabecera -->
-        <div class="text-center mb-4">
-          <h1 class="display-5 fw-bold text-primary">Sistema de archivos EXT2</h1>
-          <hr class="my-4 text-primary opacity-75">
-        </div>
-        
-        <!-- Panel de comandos -->
-        <div class="card border-0 shadow-lg mb-4 bg-white rounded">
-          <div class="card-header bg-primary text-white p-3">
-            <div class="d-flex align-items-center">
-              <i class="bi bi-terminal-fill me-2 fs-5"></i>
-              <h5 class="mb-0">Consola de comandos</h5>
-            </div>
-          </div>
-          <div class="card-body p-4">
-            <div class="form-floating mb-3">
-              <textarea 
-                v-model="entrada" 
-                class="form-control bg-light"
-                id="commandTextarea" 
-                style="height: 120px"
-                placeholder="Escribe comandos aquí..."
-              ></textarea>
-              <label for="commandTextarea">Ingresa el comando o script</label>
-            </div>
-            
-            <div class="row g-3">
-              <div class="col-md-6">
-                <div class="input-group">
-                  <label class="input-group-text bg-secondary text-white">
-                    <i class="bi bi-file-earmark-text"></i>
-                  </label>
-                  <input 
-                    type="file" 
-                    class="form-control" 
-                    @change="handleFileUpload"
-                    accept=".mias"
-                    id="fileInput"
-                  />
-                </div>
-                <div class="form-text text-muted mt-1">
-                  <i class="bi bi-info-circle-fill me-1"></i> Solo archivos con extensión .mias
-                </div>
-                <div v-if="fileError" class="alert alert-danger mt-2 py-2 small">
-                  <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ fileError }}
-                </div>
-              </div>
-              <div class="col-md-3">
-                <button class="btn btn-primary w-100 d-flex justify-content-center align-items-center" @click="ejecutar">
-                  <i class="bi bi-play-fill me-2"></i> Ejecutar
-                </button>
-              </div>
-              <div class="col-md-3">
-                <button class="btn btn-danger w-100 d-flex justify-content-center align-items-center" @click="limpiar">
-                  <i class="bi bi-trash me-2"></i> Limpiar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Panel de salida -->
-        <div class="card border-0 shadow-lg bg-white rounded">
-          <div class="card-header bg-success text-white p-3">
-            <div class="d-flex align-items-center">
-              <i class="bi bi-code-square me-2 fs-5"></i>
-              <h5 class="mb-0">Resultado de comandos</h5>
-            </div>
-          </div>
-          <div class="card-body p-4">
-            <!-- Se eliminó form-floating y su label -->
-            <textarea 
-              v-model="salida" 
-              class="form-control bg-dark text-light font-monospace"
-              style="height: 180px"
-              id="outputTextarea"
-              readonly
-              placeholder="La salida aparecerá aquí..."
-            ></textarea>
-          </div>
-          <div class="card-footer bg-light p-3 text-end">
-            <span class="badge bg-info text-dark">
-              <i class="bi bi-info-circle me-1"></i> Sistema de archivos EXT2 • Enner Mendizabal 202302220
-            </span>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-</template>
-
 <script>
 export default {
-  data() {
-    return {
-      entrada: "",
-      salida: "",
-      fileError: ""
-    };
-  },
-  methods: {
-    handleFileUpload(event) {
-      const file = event.target.files[0];
-      this.fileError = "";
-
-      if (!file) return;
-
-      const fileName = file.name;
-      const fileExtension = fileName.split('.').pop().toLowerCase();
-
-      if (fileExtension !== 'mias') {
-        this.fileError = "Solo se permiten archivos con extensión .mias";
-        event.target.value = '';
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        this.entrada = e.target.result;
-        this.salida = `✅ Archivo cargado: ${fileName}\n--- Contenido ---\n${this.entrada}\n---------------\nListo para ejecutar.`; // Mostrar contenido cargado
-      };
-      reader.readAsText(file);
+    data() {
+        return {
+            entrada: "",
+            salida: "",
+            fileError: ""
+        };
     },
-    async ejecutar() { // Marcar la función como async
-      if (!this.entrada.trim()) {
-        this.salida = "⚠️ No hay comandos para ejecutar";
-        return;
-      }
+    methods: {
+        handleFileUpload(event) {
+            const file = event.target.files[0];
+            this.fileError = "";
 
-      // Limpiar salida anterior e indicar inicio
-      this.salida = "🔄 Ejecutando comandos...\n------------------------\n";
+            if (!file) return;
 
-      // Dividir la entrada en líneas
-      const lines = this.entrada.split('\n');
-      let hasErrors = false; // Para rastrear si hubo algún error
+            const fileName = file.name;
+            const fileExtension = fileName.split('.').pop().toLowerCase();
 
-      // Iterar sobre cada línea
-      for (const line of lines) {
-        const trimmedLine = line.trim(); // Quitar espacios inicio/fin
-
-        // Ignorar líneas vacías y comentarios en el frontend también
-        if (trimmedLine === "" || trimmedLine.startsWith("#")) {
-          // Opcional: Mostrar línea ignorada en la salida
-          // this.salida += `(Ignorando: ${line})\n`;
-          continue; // Pasar a la siguiente línea
-        }
-
-        // Mostrar el comando que se va a ejecutar
-        this.salida += `> ${trimmedLine}\n`;
-
-        try {
-          const response = await fetch('http://localhost:3001/', { // Usar await para esperar la respuesta
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            // Enviar solo la línea actual como comando
-            body: JSON.stringify({ command: trimmedLine }),
-          });
-
-          // Leer la respuesta del backend
-          const data = await response.json(); // Usar await
-
-          // Verificar si el backend reportó un error en su estructura JSON
-          if (data.error) {
-              this.salida += `❌ Error: ${data.error}\n`;
-              hasErrors = true;
-          } else if (!response.ok) {
-              let errorMsg = `Error HTTP ${response.status}`;
-             if(data.output) { // Si hay 'output' aunque no sea OK, podría tener el error
-                errorMsg += `: ${data.output}`;
-             } else if(data.error) { // O si hay campo 'error'
-                errorMsg += `: ${data.error}`;
-              }
-              this.salida += `❌ ${errorMsg}\n`;
-              hasErrors = true;
-          } else {
-            if (data.output && data.output.trim() !== "") {
-                this.salida += `${data.output}\n`;
-            } else {
-                 // Si no hay output, al menos indicar que se completó ok (opcional)
-                this.salida += `(OK)\n`;
+            if (fileExtension !== 'mias') {
+                this.fileError = "Solo se permiten archivos con extensión .mias";
+                event.target.value = '';
+                return;
             }
-          }
-        } catch (error) {
-           // Error de red o al parsear JSON
-          console.error("Error en fetch:", error);
-          this.salida += `❌ Error de conexión o respuesta inválida del backend.\n`;
-          hasErrors = true;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.entrada = e.target.result;
+                this.salida = `✅ Archivo cargado: ${fileName}\n--- Contenido ---\n${this.entrada}\n---------------\nListo para ejecutar.`; // Mostrar contenido cargado
+            };
+            reader.readAsText(file);
+        },
+        async ejecutar() { // Marcar la función como async
+            if (!this.entrada.trim()) {
+                this.salida = "⚠️ No hay comandos para ejecutar";
+                return;
+            }
+
+            // Limpiar salida anterior e indicar inicio
+            this.salida = "🔄 Ejecutando comandos...\n------------------------\n";
+
+            // Dividir la entrada en líneas
+            const lines = this.entrada.split('\n');
+            let hasErrors = false; // Para rastrear si hubo algún error
+
+            // Iterar sobre cada línea
+            for (const line of lines) {
+                const trimmedLine = line.trim(); // Quitar espacios inicio/fin
+
+                if (trimmedLine === "" || trimmedLine.startsWith("#")) {
+                    continue; // Pasar a la siguiente línea
+                }
+
+                // Mostrar el comando que se va a ejecutar
+                this.salida += `> ${trimmedLine}\n`;
+
+                try {
+                    const response = await fetch('http://localhost:3001/', { // Usar await para esperar la respuesta
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        // Enviar solo la línea actual como comando
+                        body: JSON.stringify({ command: trimmedLine }),
+                    });
+
+                    // Leer la respuesta del backend
+                    const data = await response.json(); // Usar await
+
+                    // Verificar si el backend reportó un error en su estructura JSON
+                    if (data.error) {
+                        this.salida += `❌ Error: ${data.error}\n`;
+                        hasErrors = true;
+                    } else if (!response.ok) {
+                        let errorMsg = `Error HTTP ${response.status}`;
+                        if (data.output) { // Si hay 'output' aunque no sea OK, podría tener el error
+                            errorMsg += `: ${data.output}`;
+                        } else if (data.error) { // O si hay campo 'error'
+                            errorMsg += `: ${data.error}`;
+                        }
+                        this.salida += `❌ ${errorMsg}\n`;
+                        hasErrors = true;
+                    } else {
+                        if (data.output && data.output.trim() !== "") {
+                            this.salida += `${data.output}\n`;
+                        } else {
+                            this.salida += `(OK)\n`;
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error en fetch:", error);
+                    this.salida += `❌ Error de conexión o respuesta inválida del backend.\n`;
+                    hasErrors = true;
+                }
+                this.salida += "------------------------\n";
+            }
+
+            this.salida += hasErrors ? "⚠️ Ejecución completada con errores." : "✅ Ejecución completada.";
+
+        },
+        limpiar() {
+            this.entrada = "";
+            this.salida = "";
+            this.fileError = "";
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput) fileInput.value = '';
+        },
+
+        //Aquí se va a inicar sesión
+
+        iniciarSesion() {
+            console.log("Redirigiendo a inicio de sesión...");
+            const url = "/login"; // URL de inicio de sesión
+            this.$router.push(url); // Redirigir a la URL de inicio de sesión
         }
-        this.salida += "------------------------\n";
-      } 
-
-      this.salida += hasErrors ? "⚠️ Ejecución completada con errores." : "✅ Ejecución completada.";
-
     },
-    limpiar() {
-       // ... (tu código de limpiar sin cambios)
-      this.entrada = "";
-      this.salida = "";
-      this.fileError = "";
-      const fileInput = document.getElementById('fileInput');
-      if (fileInput) fileInput.value = '';
-    },
-  },
 };
 </script>
-
-<style>
-@import "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
-@import "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css";
-
-body {
-  background: #f8f9fa;
-}
-.card {
-  transition: transform 0.2s;
-}
-
-.card:hover {
-  transform: translateY(-5px);
-}
-
-textarea.form-control:focus {
-  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
-  border-color: #86b7fe;
-}
-
-.font-monospace {
-  font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-}
-</style>
-``` 
-
-
-
+```
 ![1](./img/1.png)
 
-En la parte inferior, la consola muestra los resultados de los comandos ejecutados y proporciona información sobre el estado del sistema de archivos.
+
+  - **Vista Login:** Permite loguearse sin necesidad de usar la consola.
+```vue
+<script>
+export default {
+  name: 'UserLogin',
+  data() {
+    return {
+      loginForm: {
+        idPartition: '',
+        username: '',
+        password: '',
+      },
+      statusMessage: '',
+      errorMessage: ''
+    }
+  },
+  methods: {
+    async handleLogin() { // Marcar como async para usar await
+      this.errorMessage = "";
+      this.statusMessage = "Validando credenciales...";
+      console.log('Intentando iniciar sesión con:', this.loginForm);
+
+      if (!this.loginForm.idPartition || !this.loginForm.username || !this.loginForm.password) {
+        this.errorMessage = "Todos los campos son obligatorios.";
+        this.statusMessage = "";
+        return;
+      }
+
+      // Construir el string del comando login
+      const commandString = `login -user=${this.loginForm.username} -pass=${this.loginForm.password} -id=${this.loginForm.idPartition}`;
+
+      console.log("Enviando comando:", commandString);
+
+      try {
+        const response = await fetch('http://localhost:3001/', { // URL del backend
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ command: commandString }), // Enviar el comando como lo espera el backend
+        });
+
+        const data = await response.json(); // Esperar y parsear la respuesta JSON
+
+        if (!response.ok || data.error) {
+          // Hubo un error HTTP o el backend reportó un error específico
+          const errorMsg = data.error || data.output || `Error HTTP ${response.status}`;
+          this.errorMessage = `Error de inicio de sesión: ${errorMsg}`;
+          this.statusMessage = ""; // Limpiar mensaje de estado
+          console.error("Error en login desde backend:", errorMsg);
+        } else {
+          // Login válido en el backend
+          this.statusMessage = "¡Inicio de sesión exitoso! Redirigiendo...";
+          console.log("Login successful:", data.output); // Mostrar mensaje del backend (si lo hay)
+
+          setTimeout(() => {
+            this.$router.push('/loged'); // Redirigir a la vista de disco después de 1 segundo
+          }, 1000); // Espera 1 segundo antes de redirigir
+
+        }
+
+      } catch (error) {
+        // Error de red (backend no disponible, CORS, etc.) o error parseando JSON
+        console.error("Error en fetch durante login:", error);
+        this.errorMessage = "Error de conexión con el servidor. Asegúrate de que el backend esté corriendo.";
+        this.statusMessage = "";
+      }
+    },
+    volverAConsola() {
+      console.log("Volviendo a la consola...");
+      this.$router.push('/'); // Navegar a la ruta raíz
+    }
+  }
+}
+</script>
+```
+![3](./img/3.png)
+
+  - **Vista loged:** Muestra la vista principal con funciones extras al estar logueado.
+
+```vue
+<script>
+export default {
+    data() {
+        return {
+            entrada: "",
+            salida: "",
+            fileError: ""
+        };
+    },
+    methods: {
+        handleFileUpload(event) {
+            const file = event.target.files[0];
+            this.fileError = "";
+
+            if (!file) return;
+
+            const fileName = file.name;
+            const fileExtension = fileName.split('.').pop().toLowerCase();
+
+            if (fileExtension !== 'mias') {
+                this.fileError = "Solo se permiten archivos con extensión .mias";
+                event.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.entrada = e.target.result;
+                this.salida = `✅ Archivo cargado: ${fileName}\n--- Contenido ---\n${this.entrada}\n---------------\nListo para ejecutar.`; // Mostrar contenido cargado
+            };
+            reader.readAsText(file);
+        },
+        async ejecutar() { // Marcar la función como async
+            if (!this.entrada.trim()) {
+                this.salida = "⚠️ No hay comandos para ejecutar";
+                return;
+            }
+
+            // Limpiar salida anterior e indicar inicio
+            this.salida = "🔄 Ejecutando comandos...\n------------------------\n";
+
+            // Dividir la entrada en líneas
+            const lines = this.entrada.split('\n');
+            let hasErrors = false; // Para rastrear si hubo algún error
+
+            // Iterar sobre cada línea
+            for (const line of lines) {
+                const trimmedLine = line.trim(); // Quitar espacios inicio/fin
+
+                if (trimmedLine === "" || trimmedLine.startsWith("#")) {
+                    continue; // Pasar a la siguiente línea
+                }
+
+                // Mostrar el comando que se va a ejecutar
+                this.salida += `> ${trimmedLine}\n`;
+
+                try {
+                    const response = await fetch('http://localhost:3001/', { // Usar await para esperar la respuesta
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        // Enviar solo la línea actual como comando
+                        body: JSON.stringify({ command: trimmedLine }),
+                    });
+
+                    // Leer la respuesta del backend
+                    const data = await response.json(); // Usar await
+
+                    // Verificar si el backend reportó un error en su estructura JSON
+                    if (data.error) {
+                        this.salida += `❌ Error: ${data.error}\n`;
+                        hasErrors = true;
+                    } else if (!response.ok) {
+                        let errorMsg = `Error HTTP ${response.status}`;
+                        if (data.output) { // Si hay 'output' aunque no sea OK, podría tener el error
+                            errorMsg += `: ${data.output}`;
+                        } else if (data.error) { // O si hay campo 'error'
+                            errorMsg += `: ${data.error}`;
+                        }
+                        this.salida += `❌ ${errorMsg}\n`;
+                        hasErrors = true;
+                    } else {
+                        if (data.output && data.output.trim() !== "") {
+                            this.salida += `${data.output}\n`;
+                        } else {
+                            // Si no hay output, al menos indicar que se completó ok (opcional)
+                            this.salida += `(OK)\n`;
+                        }
+                    }
+                } catch (error) {
+                    // Error de red o al parsear JSON
+                    console.error("Error en fetch:", error);
+                    this.salida += `❌ Error de conexión o respuesta inválida del backend.\n`;
+                    hasErrors = true;
+                }
+                this.salida += "------------------------\n";
+            }
+
+            this.salida += hasErrors ? "⚠️ Ejecución completada con errores." : "✅ Ejecución completada.";
+
+        },
+        limpiar() {
+            this.entrada = "";
+            this.salida = "";
+            this.fileError = "";
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput) fileInput.value = '';
+        },
+
+        //Aquí se va a cerrar la sesión
+        async cerrarSesion() {
+            console.log("Cerrando sesión...");
+            this.salida = "Cerrando sesión..."; // Feedback visual
+
+            const commandString = "logout"; // Comando para el backend
+
+            try {
+                // Llamar al backend para que cierre sesión 
+                const response = await fetch('http://localhost:3001/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: commandString }),
+                });
+                const data = await response.json();
+                // Mostrar resultado del logout del backend (opcional)
+                if (data.error) { console.error("Error backend en logout:", data.error); }
+                else { console.log("Logout backend:", data.output || "(OK)"); this.$router.push('/'); // Ir a la página de inicio (no logueado)
+            }
+            } catch (error) {
+                // Error de red, pero continuamos con el logout del frontend
+                console.error("Error fetch en logout:", error);
+                this.salida += "\nError de conexión al cerrar sesión en backend, cerrando localmente.";
+            }
+        },
+        async Disks() {
+            console.log("Redirigiendo a discos...");
+            const url = "/disk"; // URL de inicio de sesión
+            this.$router.push(url); // Redirigir a la URL de inicio de sesión
+
+        }
+    },
+};
+</script>
+```
+![4](./img/4.png)
+
+  - **Vista disks:** Muestra todos los discos creados y permite ingresar en estos.
+```vue
+<script>
+export default {
+    name: 'DiskPage',
+    data() {
+        return {
+            disks: [],
+            isLoading: false,
+            errorMessage: ''
+        };
+    },
+    methods: {
+        // Método para obtener la info de discos del backend
+        async fetchDisks() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.disks = [];
+            console.log("Enviando comando 'disks' al backend...");
+
+            try {
+                const response = await fetch('http://localhost:3001/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: "disks" }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || data.error) {
+                    const errorMsg = data.error || data.output || `Error HTTP ${response.status}`;
+                    throw new Error(`Error obteniendo lista de discos: ${errorMsg}`);
+                }
+
+                console.log("Respuesta recibida:", data.output);
+                //alert("Respuesta recibida: " + data.output);
+                this.parseAndSetDisks(data.output); // Llamar al parser
+
+            } catch (error) {
+                console.error("Error en fetchDisks:", error);
+                this.errorMessage = error.message || "Error de conexión o respuesta inválida.";
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        parseAndSetDisks(outputString) {
+            if (!outputString || typeof outputString !== 'string') {
+                console.warn("String de salida inválido:", outputString);
+                this.errorMessage = "Respuesta inválida del servidor (no es string).";
+                this.disks = [];
+                return;
+            }
+            const prefix = "DISKS:\n";
+            if (!outputString.startsWith(prefix)) {
+                console.warn("String de salida sin prefijo esperado:", outputString);
+                this.errorMessage = "Respuesta inválida del servidor (formato inesperado).";
+                this.disks = [];
+                return;
+            }
+
+            // Usar slice para quitar prefijo 
+            let dataString = outputString.slice(prefix.length);
+
+            if (dataString.trim() === "") {
+                console.log("No hay discos registrados según el backend.");
+                this.disks = [];
+                return;
+            }
+
+            // Separar por punto y coma y quitar espacios
+            const diskEntries = dataString.split(';');
+            const parsedDisks = [];
+
+            // Iterar sobre cada disco
+            for (const entry of diskEntries) {
+                const trimmedEntry = entry.trim();
+                if (trimmedEntry === "") continue;
+
+                const fields = trimmedEntry.split(',');
+                if (fields.length !== 5) {
+                    console.warn("Entrada de disco con formato incorrecto (campos != 5), saltando:", entry);
+                    continue;
+                }
+
+                const diskName = fields[0].trim();
+                const diskPath = fields[1].trim();
+                //alert(`Path del disco: ${diskPath}`);
+                const diskSizeStr = fields[2].trim();
+                //alert(`Tamaño del disco: ${diskSizeStr}`);
+                const diskFit = fields[3].trim();
+                //alert(`Ajuste del disco: ${diskFit}`);
+                const mountedStr = fields[4].trim();
+                //console.log("Particiones montadas:", mountedStr);
+
+                // Usar parseInt y isNaN ---
+                const diskSize = parseInt(diskSizeStr, 10); // Base 10
+                if (isNaN(diskSize)) {
+                    console.warn(`Tamaño inválido (no es número) para disco '${diskName}', saltando:`, diskSizeStr);
+                    continue;
+                }
+                //alert(`Tamaño del disco: ${diskSize}`);
+
+                // Parsear particiones montadas
+                let mountedPartitions = [];
+                if (mountedStr !== "Ninguna" && mountedStr !== "") {
+                    mountedPartitions = mountedStr.split('|');
+                    for (let i = 0; i < mountedPartitions.length; i++) {
+                        mountedPartitions[i] = mountedPartitions[i].trim();
+                    }
+                }
+
+                if (mountedPartitions.length === 0) {
+                    mountedPartitions = "Ninguna";
+                }
+                parsedDisks.push({
+                    name: diskName,
+                    path: diskPath,
+                    size: diskSize,
+                    fit: diskFit,
+                    mountedPartitions: mountedPartitions
+                });
+            }
+
+            this.disks = parsedDisks;
+            console.log("Discos parseados:", this.disks);
+        },
+
+        selectDisk(disk) {
+            console.log("Disco seleccionado, navegando a particiones:", disk);
+            if (!disk || !disk.path) {
+                console.error("Datos de disco inválidos para navegar.");
+                this.errorMessage = "No se puede mostrar particiones para este disco.";
+                return;
+            }
+            try {
+                // Codificar el path del disco para pasarlo como parámetro en la URL
+                const encodedPath = encodeURIComponent(disk.path);
+                //alert(disk.path)
+                // Navegar a la nueva ruta 'PartitionPage', pasando el path codificado
+                this.$router.push({ name: 'partitions', params: { diskPathEncoded: encodedPath } });
+            } catch (e) {
+                console.error("Error en codificación de URL o navegación:", e);
+                this.errorMessage = "No se pudo navegar a la vista de particiones.";
+            }
+        },
+
+        regresar() {
+            console.log("Volviendo a la consola...");
+            this.$router.push('/loged');
+        }
+    },
+    mounted() {
+        console.log("Componente DiskPage montado. Obteniendo discos...");
+        this.fetchDisks();
+    }
+}
+</script>
+```
+![5](./img/5.png)
+
+  - **Vista partitions:** Muestra todas las particiones dentro de un disco y permite ingresar al contenido dentro de estas.
+```vue
+<script>
+export default {
+    name: 'PartitionPage',
+    props: ['diskPathEncoded'],
+    data() {
+        return {
+            partitions: [], // { name, type, size, start, fit, status, mountId }
+            isLoading: false,
+            errorMessage: '',
+            decodedDiskPath: ''
+        };
+    },
+    methods: {
+        async fetchPartitions() {
+            if (!this.diskPathEncoded) { /* ... */ return; }
+            try { this.decodedDiskPath = decodeURIComponent(this.diskPathEncoded); } catch (e) { /* ... */ return; }
+
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.partitions = [];
+            const commandString = `partitions -path="${this.decodedDiskPath}"`;
+            console.log(`Enviando comando: ${commandString}`);
+
+            try {
+                const response = await fetch('http://localhost:3001/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
+                const data = await response.json();
+                if (!response.ok || data.error) {  throw new Error(`Error obteniendo particiones: ${data.error || data.output || 'Error desconocido'}`); }
+                console.log("Respuesta Partitions:", data.output);
+                this.parseAndSetPartitions(data.output);
+
+            } catch (error) {  this.errorMessage = error.message; }
+            finally { this.isLoading = false; }
+        },
+
+        // Parsea
+        parseAndSetPartitions(outputString) {
+            if (!outputString || !outputString.startsWith("PARTITIONS:\n")) { this.errorMessage = "Formato inválido"; return; }
+            let dataString = outputString.slice("PARTITIONS:\n".length);
+            if (dataString.trim() === "") { this.partitions = []; return; }
+
+            const partitionEntries = dataString.split(';');
+            const parsedPartitions = [];
+
+            for (const entry of partitionEntries) {
+                const trimmedEntry = entry.trim();
+                if (trimmedEntry === "") continue;
+                const fields = trimmedEntry.split(',');
+                if (fields.length < 7) { // Esperamos al menos 7 ahora
+                    console.warn("Entrada partición formato incorrecto (< 7 campos):", entry);
+                    continue;
+                }
+
+                const partName = fields[0].trim();
+                const partType = fields[1].trim();
+                const partSizeStr = fields[2].trim();
+                const partStartStr = fields[3].trim();
+                const partFit = fields[4].trim();
+                const partStatus = fields[5].trim();
+                const mountId = fields[6].trim(); 
+
+                const partSize = parseInt(partSizeStr, 10);
+                const partStart = parseInt(partStartStr, 10);
+                if (isNaN(partSize) || isNaN(partStart)) { console.warn(`Datos inválidos p '${partName}'`); continue; }
+
+                parsedPartitions.push({
+                    name: partName, type: partType, size: partSize, start: partStart,
+                    fit: partFit, status: partStatus,
+                    mountId: mountId || null
+                });
+            }
+            this.partitions = parsedPartitions;
+            console.log("Particiones parseadas:", this.partitions);
+        },
+
+        selectPartition(part) {
+            console.log("Partición seleccionada:", part);
+            if (!part.mountId) {
+                alert(`La partición '${part.name}' no está montada.`);
+                return; // No hacer nada si no está montada
+            }
+
+            console.log(`Navegando al explorador para partición ID: ${part.mountId}, ruta inicial: /`);
+            try {
+                // Codificar la ruta raíz '/' para la URL
+                const encodedRootPath = encodeURIComponent('/');
+                this.$router.push({
+                    name: 'FilesPage', // Asegúrate que este sea el 'name' de tu ruta en router/index.js
+                    params: {
+                        mountId: part.mountId, 
+                        internalPathEncoded: encodedRootPath 
+                    }
+                });
+            } catch (e) {
+                console.error("Error al navegar al explorador:", e);
+                this.errorMessage = "No se pudo abrir el explorador de archivos.";
+            }
+        },
+
+        goBack() {
+            console.log("Volviendo a la página de discos...");
+            this.$router.push('/disk');
+        }
+    },
+    mounted() {
+        console.log("Componente PartitionPage montado.");
+        this.fetchPartitions();
+    }
+}
+</script>
+
+```
+![6](./img/6.png)
+
+
+  - **Vista Files:** Se presenta como un explorador de archivo dentro del disco seleccionado.
+```vue
+<script>
+
+export default {
+    name: 'FilesPage',
+    props: ['mountId', 'internalPathEncoded'],
+    data() {
+        return {
+            items: [],
+            isLoading: false,
+            errorMessage: '',
+        };
+    },
+    computed: {
+        sortedItems() {
+            return [...this.items].sort((a, b) => {
+                if (a.name === '.') return -1; if (b.name === '.') return 1;
+                if (a.name === '..') return -1; if (b.name === '..') return 1;
+                if (a.type !== b.type) { return a.type < b.type ? -1 : 1; }
+                return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+            });
+        },
+
+        decodedInternalPath() {
+            if (!this.internalPathEncoded) return '/';
+            try {
+                let decoded = decodeURIComponent(this.internalPathEncoded);
+                if (!decoded.startsWith('/')) decoded = '/' + decoded;
+                if (decoded !== '/' && decoded.endsWith('/')) decoded = decoded.slice(0, -1);
+                return decoded;
+            } catch (e) {
+                console.error("Error decodificando path:", e);
+                return '/';
+            }
+        }
+    },
+    watch: {
+        // Observar cambios en el parámetro de la ruta para recargar
+        internalPathEncoded(newVal, oldVal) {
+            if (newVal !== oldVal) {
+                console.log("Watcher: Cambio detectado en internalPathEncoded, recargando contenido...");
+                this.fetchDirectoryContent();
+            }
+        }
+    },
+    methods: {
+        // Carga el contenido del directorio actual
+        async fetchDirectoryContent() {
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.items = [];
+
+            const pathToList = this.decodedInternalPath;
+            // Construcción del comando:
+            console.log(`Enviando comando 'content -id=${this.mountId} -ruta="${pathToList}"'`);
+            const commandString = `content -id=${this.mountId} -ruta="${pathToList}"`;
+
+            try {
+                // Envío del comando al backend
+                const response = await fetch('http://localhost:3001/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
+                const data = await response.json();
+
+                // Manejo de respuesta (asumiendo que el backend devuelve "nombre,tipo\n...")
+                if (!response.ok || data.error) {
+                    // ... manejo de error ...
+                    const errorMsg = data.error || data.output || `Error HTTP ${response.status}`;
+                    // Manejar caso específico de directorio vacío como no-error
+                    if (typeof data.output === 'string' && data.output.includes("Directorio") && data.output.includes("está vacío")) {
+                        this.errorMessage = ''; this.items = []; console.log(`Directorio '${pathToList}' está vacío.`);
+                    } else { throw new Error(`Error obteniendo contenido: ${errorMsg}`); }
+                } else {
+                    this.parseAndSetItems(data.output); // Parsea la respuesta
+                }
+
+            } catch (error) { /* ... */ this.errorMessage = error.message; }
+            finally { this.isLoading = false; }
+        },
+
+        parseAndSetItems(outputString) {
+            if (!outputString || typeof outputString !== 'string') { return; }
+            const prefix = "CONTENT:\n";
+            if (!outputString.startsWith(prefix)) { return; }
+            let dataString = outputString.slice(prefix.length);
+            if (dataString.trim() === "" || dataString.includes("está vacío")) { this.items = []; return; }
+
+            const lines = dataString.split('\n');
+            const parsedItems = [];
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine === "") continue;
+                const fields = trimmedLine.split(',');
+
+                if (fields.length !== 5) {
+                    console.warn("Entrada formato incorrecto (campos != 5):", line);
+                    continue;
+                }
+                const itemName = fields[0].trim();
+                const itemType = fields[1].trim();
+                const itemMtimeStr = fields[2].trim();
+                const itemSizeStr = fields[3].trim();
+                const itemPerms = fields[4].trim();
+
+                let itemSize = -1;
+                if (itemSizeStr !== "-1") {
+                    const parsedSize = parseInt(itemSizeStr, 10);
+                    if (!isNaN(parsedSize)) { itemSize = parsedSize; }
+                    else { console.warn(`Tamaño inválido para '${itemName}': ${itemSizeStr}`); }
+                }
+
+                if (itemName === '.' || itemName === '..') { continue; }
+
+                parsedItems.push({
+                    name: itemName, type: itemType, mtime: itemMtimeStr,
+                    size: itemSize, perms: itemPerms
+                });
+            }
+            this.items = parsedItems;
+            console.log("Items parseados:", this.items);
+        },
+
+        handleItemClick(item) {
+            if (item.type === '0') { this.navigateTo(item); } // Directorio
+            else if (item.type === '1') { // Archivo
+                console.log(`Navegando al visor para archivo: ${item.name}`);
+                const currentDecodedPath = this.decodedInternalPath;
+                let filePath = (currentDecodedPath === '/') ? '/' + item.name : currentDecodedPath + '/' + item.name;
+                try {
+                    const encodedFilePath = encodeURIComponent(filePath);
+                    this.$router.push({
+                        name: 'FileView', // Nombre ruta visor
+                        params: { mountId: this.mountId, filePathEncoded: encodedFilePath }
+                    });
+                } catch (e) { console.error("Error al navegar al visor:", e); this.errorMessage = "Error al abrir archivo."; }
+            }
+        },
+
+        navigateTo(item) {
+            if (item.type !== '0') return;
+            const currentDecodedPath = this.decodedInternalPath;
+            let newPath = (currentDecodedPath === '/') ? '/' + item.name : currentDecodedPath + '/' + item.name;
+            console.log(`Navegando a subdirectorio: ${newPath}`);
+            try {
+                const newEncodedPath = encodeURIComponent(newPath);
+                this.$router.push({
+                    name: 'FilesPage', 
+                    params: { mountId: this.mountId, internalPathEncoded: newEncodedPath }
+                });
+            } catch (e) { console.error("Error al navegar a subdirectorio:", e); this.errorMessage = "Error al navegar."; }
+        },
+
+
+        goBackToPartitions() {
+            console.log("Volviendo a la selección de particiones...");
+            this.$router.go(-1); // Ir atrás
+        },
+        formatSize(bytes) {
+            if (bytes < 0 || typeof bytes !== 'number' || isNaN(bytes)) return '-';
+            if (bytes === 0) return '0 bytes';
+            const k = 1024;
+            const sizes = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.max(0, Math.floor(Math.log(bytes) / Math.log(k)));
+            let num = parseFloat((bytes / Math.pow(k, i)).toFixed(1));
+            if (i === 0) { num = Math.round(num); }
+            return num + ' ' + sizes[i];
+        }
+
+
+    },
+    mounted() {
+        console.log("Componente montado.");
+        this.fetchDirectoryContent();
+    }
+}
+</script>
+```
+![7](./img/7.png)
+
+  - **Vista Contenido:** Permite ver le contenido de un archivo seleccionado por en el explorador de archivos.
+
+```vue
+<script>
+export default {
+    name: 'FileView',
+    props: ['mountId', 'filePathEncoded'], 
+    data() {
+        return {
+            fileContent: '',
+            isLoading: false,
+            errorMessage: '',
+            decodedFilePath: ''
+        };
+    },
+    computed: {
+        decodedFilePathComputed() { 
+            if (!this.filePathEncoded) return 'Inválido';
+            try { return decodeURIComponent(this.filePathEncoded); }
+            catch (e) { console.error("Error decodificando path:", e); return 'Error Path'; }
+        }
+    },
+    methods: {
+        async fetchFileContent() {
+
+            if (!this.mountId || !this.filePathEncoded) {
+                this.errorMessage = "Error interno: Falta ID de montaje o path del archivo.";
+                return;
+            }
+            this.decodedFilePath = this.decodedFilePathComputed;
+            if (this.decodedFilePath === 'Error Path') {
+                this.errorMessage = "Error: El path del archivo en la URL es inválido.";
+                return;
+            }
+
+            this.isLoading = true;
+            this.errorMessage = '';
+            this.fileContent = '';
+            console.log(`Enviando comando 'cat -id=${this.mountId} -path="${this.decodedFilePath}"'`);
+
+            // Construir comando cat
+            const commandString = `cat -id=${this.mountId} -path="${this.decodedFilePath}"`;
+
+            try {
+                const response = await fetch('http://localhost:3001/', { // URL Backend
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: commandString }),
+                });
+                const data = await response.json();
+
+                if (!response.ok || data.error) {
+                    const errorMsg = data.error || data.output || `Error HTTP ${response.status}`;
+                    throw new Error(`Error obteniendo contenido del archivo: ${errorMsg}`);
+                }
+
+                this.fileContent = data.output; 
+                console.log("Contenido del archivo recibido.");
+
+            } catch (error) {
+                console.error("Error en fetchFileContent:", error);
+                this.errorMessage = error.message || "Error de conexión o respuesta inválida.";
+            } finally {
+                this.isLoading = false;
+            }
+        },
+
+        goBackToFileExplorer() {
+            console.log("Volviendo al explorador...");
+            this.$router.go(-1);
+        }
+    },
+    mounted() {
+        console.log("Componente FileViewerPage montado.");
+        this.fetchFileContent();
+    }
+}
+</script>
+```
+![8](./img/8.png)
+
+
 
 El frontend está desarrollado con el framework Vue.js y se comunica con el backend mediante una API REST y JSON.
 
@@ -587,6 +1231,26 @@ type FileBlock struct {
 }
 ```
 
+#### JOURNAL
+El Journal es la característica central que diferencia a EXT3 de EXT2.Es un área dedicada que funciona como un registro transaccional. Su proposito es registrar las transacciones que se van a realizar en los metadatos del sistema de archivos antes de que se escriban en sus ubicaciones finales. Contiene:
+- Marcadores de inicio y fin de transacción.
+- Identificadores de los bloques de metadatos que se modificarán.
+- Copias de cómo deben quedar esos bloques de metadatos después del cambio.
+```go
+type Journal struct {
+	J_count   int32       // 4 bytes
+	J_content Information // 110 bytes
+	// Total: 114 bytes
+}
+
+type Information struct {
+	I_operation [10]byte // 10 bytes
+	I_path      [32]byte // 32 bytes
+	I_content   [64]byte // 64 bytes
+	I_date      float32  // 4 bytes
+	// Total: 110 bytes
+}
+```
 #### users.txt (Archivo Especial)
 - Ubicación: /users.txt (Inodo 1, por convención de CreateUsersFile).
 - Formato: Archivo de texto plano, cada línea representa un usuario o grupo.
@@ -629,48 +1293,88 @@ func commandMkdisk(mkdisk *MKDISK) error {
 #### FDISK
 Este comando es fundamental para la administración de particiones dentro de un disco duro virtual.  Permite crear, eliminar o modificar particiones.  Al crear una partición, se pueden especificar parámetros como el tamaño, la unidad de medida, la ruta del disco, el tipo de partición (primaria, extendida o lógica), el algoritmo de ajuste de espacio (Best Fit, First Fit, Worst Fit) y el nombre de la partición.  El sistema debe controlar que se cumplan las reglas de las particiones (máximo 4 particiones primarias o extendidas, solo una extendida por disco, etc.) y mostrar mensajes de error si no se pueden realizar las operaciones.
 ```go
-func commandFdisk(fdisk *FDISK) error {
-	// Convertir el tamaño a bytes
-	sizeBytes, err := utils.ConvertToBytes(fdisk.size, fdisk.unit)
-	if err != nil {
-		fmt.Println("Error convirtiendo tamaño:", err)
-		return err
-	}
+func commandFdisk(cmd *FDISK, operation string) (string, error) {
 
-	switch fdisk.typ {
-	case "P":
-		// Crear partición primaria
-		err = createPrimaryPartition(fdisk, sizeBytes)
+	switch operation {
+	case "create":
+		fmt.Println("Ejecutando operación: CREAR")
+		// Convertir tamaño a bytes para creación
+		sizeBytes, err := utils.ConvertToBytes(cmd.size, cmd.unit)
 		if err != nil {
-			fmt.Println("Error creando partición primaria:", err)
-			return err
+			return "", fmt.Errorf("error convirtiendo -size a bytes: %w", err)
 		}
-	case "E":
-		// Crear partición extendida
-		err = createExtendedPartition(fdisk, sizeBytes)
-		if err != nil {
-			fmt.Println("Error creando partición primaria:", err)
-			return err
-		}
-	case "L":
-		// Crear partición lógica
-		err = createLogicalPartition(fdisk, sizeBytes)
-		if err != nil {
-			fmt.Println("Error creando partición primaria:", err)
-			return err
-		}
-	}
-	if err != nil {
-		fmt.Println("Error creando partición:", err)
-		return err
-	}
 
-	return nil
+		// Validar tamaño contra disco
+		fileInfo, errStat := os.Stat(cmd.path)
+		if errStat != nil {
+			return "", fmt.Errorf("error accediendo al disco '%s': %w", cmd.path, errStat)
+		}
+		if int64(sizeBytes) > fileInfo.Size() {
+			return "", fmt.Errorf("tamaño de partición solicitado (%d bytes) excede tamaño del disco (%d bytes)", sizeBytes, fileInfo.Size())
+		}
+		if sizeBytes <= 0 {
+			return "", fmt.Errorf("tamaño calculado de partición debe ser positivo (%d bytes)", sizeBytes)
+		}
+
+		// Llamar a la función de creación apropiada según cmd.typ
+		switch cmd.typ {
+		case "P":
+			err = createPrimaryPartition(cmd, sizeBytes)
+		case "E":
+			err = createExtendedPartition(cmd, sizeBytes)
+		case "L":
+			err = createLogicalPartition(cmd, sizeBytes)
+		default:
+			err = fmt.Errorf("tipo de partición desconocido '%s' para creación", cmd.typ)
+		}
+		if err != nil {
+			return "", err
+		} 
+
+		// Mensaje de éxito para CREAR
+		return fmt.Sprintf("FDISK: Partición '%s' creada exitosamente\n"+
+			"-> Path: %s\n"+
+			"-> Tamaño: %d%s\n"+
+			"-> Tipo: %s\n"+
+			"-> Fit: %s",
+			cmd.name, cmd.path, cmd.size, cmd.unit, cmd.typ, cmd.fit), nil
+
+	case "delete":
+		fmt.Println("Ejecutando operación: DELETE")
+		err := deletePartition(cmd) // Llamar a la nueva función de borrado
+		if err != nil {
+			return "", err
+		} 
+		// Mensaje de éxito para DELETE
+		return fmt.Sprintf("FDISK: Partición '%s' eliminada exitosamente (modo: %s)\n"+
+			"-> Path: %s",
+			cmd.name, cmd.delete, cmd.path), nil
+
+	case "add":
+		fmt.Println("Ejecutando operación: ADD")
+		err := addSpaceToPartition(cmd) 
+		if err != nil {
+			return "", err
+		} 
+		addDesc := "añadido"
+		absAdd := cmd.add
+		if cmd.add < 0 {
+			addDesc = "quitado"
+			absAdd = -absAdd
+		}
+		return fmt.Sprintf("FDISK: Espacio %s exitosamente a la partición '%s'\n"+
+			"-> Path: %s\n"+
+			"-> Cantidad: %d%s",
+			addDesc, cmd.name, cmd.path, absAdd, cmd.unit), nil
+
+	default:
+		return "", fmt.Errorf("operación fdisk desconocida: %s", operation)
+	}
 }
 ```
 
 #### MOUNT
-mite "montar" una partición de un disco en el sistema.  Esto implica hacerla accesible para las operaciones del sistema de archivos.  El comando recibe como parámetros la ruta del disco y el nombre de la partición a montar.  Al montar, se le asigna un ID a la partición y se actualiza su estado en las estructuras de datos.  Es importante tener en cuenta que el montaje se realiza en la memoria RAM, no en el disco.
+Permite "montar" una partición de un disco en el sistema.  Esto implica hacerla accesible para las operaciones del sistema de archivos.  El comando recibe como parámetros la ruta del disco y el nombre de la partición a montar.  Al montar, se le asigna un ID a la partición y se actualiza su estado en las estructuras de datos.  Es importante tener en cuenta que el montaje se realiza en la memoria RAM, no en el disco.
 ```go
 func commandMount(mount *MOUNT) error {
 	// Crear una instancia de MBR
@@ -738,56 +1442,175 @@ func commandMount(mount *MOUNT) error {
 	return nil
 }
 ```
+#### UNMOUNT
+Permite "desmontar" una partición de un disco en el sistema.  Esto implica hacerla inaccesible para las operaciones del sistema de archivos.  El comando recibe como parámetros la ruta del disco y el nombre de la partición a desmontar.  Al desmontar, se desasigna su estado en las estructuras de datos, eliminandolo de la memoria RAM.
+```go
+func commandUnmount(cmd UNMOUNT) error {
+	fmt.Printf("Intentando desmontar partición con ID: %s\n", cmd.id)
+
+	// 1. Verificar si el ID está realmente montado en nuestro store
+	diskPath, mounted := stores.MountedPartitions[cmd.id]
+	if !mounted {
+		return fmt.Errorf("error: la partición con id '%s' no se encuentra montada", cmd.id)
+	}
+	fmt.Printf("  Partición encontrada en disco: %s\n", diskPath)
+
+	// Obtener el MBR y el puntero a la Partición en memoria
+	mbr, partitionPtr, _, err := stores.GetMountedPartitionInfo(cmd.id)
+	if err != nil {
+		return fmt.Errorf("error crítico al obtener información de la partición '%s' desde el disco '%s': %w", cmd.id, diskPath, err)
+	}
+
+	partitionName := strings.TrimRight(string(partitionPtr.Part_name[:]), "\x00 ")
+
+	// Modificar el estado de la partición en memoria 
+	fmt.Printf("  Modificando estado de montaje para partición '%s' (ID: %s) en MBR...\n", partitionName, cmd.id)
+	partitionPtr.Part_correlative = 0
+	partitionPtr.Part_id = [4]byte{}  // Limpiar ID
+	partitionPtr.Part_status[0] = '0' 
+	fmt.Println("  Estado en memoria MBR modificado:")
+	partitionPtr.PrintPartition()
+
+	// Serializar el MBR modificado de vuelta al disco
+	fmt.Println("  Serializando MBR actualizado al disco...")
+	err = mbr.Serialize(diskPath)
+	if err != nil {
+		fmt.Printf("¡ERROR CRÍTICO! No se pudo guardar el MBR actualizado en '%s': %v\n", diskPath, err)
+		fmt.Println("El estado de montaje en disco puede no haberse actualizado.")
+		return fmt.Errorf("error fatal al guardar MBR actualizado para desmontaje: %w", err)
+	}
+	fmt.Println("  MBR guardado exitosamente.")
+
+	// Eliminar la partición de los stores globales
+	fmt.Printf("  Eliminando partición ID '%s' de stores globales...\n", cmd.id)
+	delete(stores.MountedPartitions, cmd.id) // Quitar del mapa principal
+
+	// Quitar ID de ListMounted
+	foundIndex := -1
+	for i, mountedID := range stores.ListMounted {
+		if mountedID == cmd.id {
+			foundIndex = i
+			break
+		}
+	}
+	if foundIndex != -1 {
+		stores.ListMounted = slices.Delete(stores.ListMounted, foundIndex, foundIndex+1) // Go 1.21+
+	} else {
+		fmt.Printf("Advertencia: ID '%s' no encontrado en stores.ListMounted para eliminar.\n", cmd.id)
+	}
+
+	foundNameIndex := -1
+	if partitionName != "" { // Solo intentar si obtuvimos un nombre
+		for i, name := range stores.ListPatitions {
+			if name == partitionName {
+				foundNameIndex = i
+				break
+			}
+		}
+		if foundNameIndex != -1 {
+			stores.ListPatitions = slices.Delete(stores.ListPatitions, foundNameIndex, foundNameIndex+1) // Go 1.21+
+			fmt.Printf("  Nombre '%s' eliminado de stores.ListPatitions.\n", partitionName)
+		} else {
+			fmt.Printf("Advertencia: Nombre '%s' no encontrado en stores.ListPatitions para eliminar.\n", partitionName)
+		}
+	}
+
+	fmt.Printf("  Stores actualizados. Montadas ahora: %v\n", stores.ListMounted)
+
+	//Logout si era la partición activa
+	if stores.Auth.IsAuthenticated() && stores.Auth.GetPartitionID() == cmd.id {
+		fmt.Println("INFO: Se está desmontando la partición activa. Realizando logout automático.")
+		stores.Auth.Logout()
+	}
+
+	fmt.Println("Desmontaje completado.")
+	return nil
+}
+```
+
 
 #### MKFS
-Este comando formatea una partición, preparándola para almacenar archivos y directorios.  En este caso, el formateo se realiza con el sistema de archivos EXT2.  Además, crea un archivo llamado "users.txt" en el directorio raíz de la partición, el cual almacenará información sobre los usuarios y grupos del sistema.  Los parámetros que recibe son el ID de la partición a formatear y, opcionalmente, el tipo de formateo (completo). 
+Este comando formatea una partición, preparándola para almacenar archivos y directorios.  En este caso, el formateo se realiza con el sistema de archivos EXT2 o EXT3.  Además, crea un archivo llamado "users.txt" en el directorio raíz de la partición, el cual almacenará información sobre los usuarios y grupos del sistema.  Los parámetros que recibe son el ID de la partición a formatear y, opcionalmente, el tipo de formateo (completo). 
 ```go
 func commandMkfs(mkfs *MKFS) error {
-	// Obtener la partición montada
-	mountedPartition, partitionPath, err := stores.GetMountedPartition(mkfs.id)
+	fmt.Printf("Iniciando formateo MKFS para partición ID: %s, Tipo: %s, Sistema de Archivos: %s\n", mkfs.id, mkfs.typ, mkfs.fs)
+
+	// Obtener Info de la Partición
+	_, mountedPartitionInfo, partitionPath, err := stores.GetMountedPartitionInfo(mkfs.id) // Usar la función corregida
 	if err != nil {
-		return err
+		return fmt.Errorf("error obteniendo información de la partición '%s': %w", mkfs.id, err)
+	}
+	fmt.Println("\nInformación de la Partición:")
+	mountedPartitionInfo.PrintPartition()
+	if mountedPartitionInfo.Part_size <= int32(binary.Size(structures.SuperBlock{}))+1024 {
+		return fmt.Errorf("la partición '%s' es demasiado pequeña para formatear", mkfs.id)
 	}
 
-	// Verificar la partición montada
-	fmt.Println("\nPatición montada:")
-	mountedPartition.PrintPartition()
+	// Calcular n
+	n := calculateN(mountedPartitionInfo)
+	fmt.Println("\nValor de n calculado:", n)
+	minInodes := int32(3)
+	if mkfs.fs == "2fs" {
+		minInodes = 2
+	}
+	if n < minInodes {
+		return fmt.Errorf("espacio insuficiente para estructuras básicas (n=%d, min=%d)", n, minInodes)
+	}
 
-	// Calcular el valor de n
-	n := calculateN(mountedPartition)
-
-	// Verificar el valor de n
-	fmt.Println("\nValor de n:", n)
-
-	// Inicializar un nuevo superbloque
-	superBlock := createSuperBlock(mountedPartition, n)
-
-	// Verificar el superbloque
-	fmt.Println("\nSuperBlock:")
+	// Crear SuperBloque Inicial
+	superBlock := createSuperBlock(mountedPartitionInfo, n, mkfs.fs)
+	if superBlock == nil {
+		return errors.New("falló la creación del superbloque inicial")
+	}
+	fmt.Println("\nSuperBloque Inicial Creado:")
 	superBlock.Print()
 
-	// Crear los bitmaps
+	// Crear Bitmaps Vacíos
+	fmt.Println("Creando bitmaps iniciales...")
 	err = superBlock.CreateBitMaps(partitionPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("error al crear bitmaps: %w", err)
 	}
 
-	// Crear archivo users.txt
-	err = superBlock.CreateUsersFile(partitionPath)
+	// Crear Estructuras Iniciales
+	fmt.Println("Creando estructuras iniciales del sistema de archivos...")
+	err = createInitialStructures(superBlock, partitionPath, mkfs.fs)
 	if err != nil {
-		return err
+		return fmt.Errorf("error al crear estructuras iniciales: %w", err)
+	}
+	fmt.Println("Estructuras iniciales creadas.")
+
+	// Establecer Punteros a Primer Libre en SuperBloque
+	fmt.Println("Buscando primer inodo y bloque libres...")
+	nextFreeInodeIdx, errInode := superBlock.FindFreeInode(partitionPath)
+	if errInode != nil {
+		fmt.Printf("Advertencia: No se encontró inodo libre post-inicialización: %v. S_first_ino=-1.\n", errInode)
+		superBlock.S_first_ino = -1
+	} else {
+		superBlock.S_first_ino = nextFreeInodeIdx
+		fmt.Printf("  Primer inodo libre encontrado: %d\n", nextFreeInodeIdx)
 	}
 
-	// Verificar superbloque actualizado
-	fmt.Println("\nSuperBlock actualizado:")
+	nextFreeBlockIdx, errBlock := superBlock.FindFreeBlock(partitionPath)
+	if errBlock != nil {
+		fmt.Printf("Advertencia: No se encontró bloque libre post-inicialización: %v. S_first_blo=-1.\n", errBlock)
+		superBlock.S_first_blo = -1
+	} else {
+		superBlock.S_first_blo = nextFreeBlockIdx
+		fmt.Printf("  Primer bloque libre encontrado: %d\n", nextFreeBlockIdx)
+	}
+	fmt.Printf("Superbloque actualizado con S_first_ino=%d, S_first_blo=%d\n", superBlock.S_first_ino, superBlock.S_first_blo)
+
+	// Imprimir y Serializar SuperBloque Final
+	fmt.Println("\nSuperBloque Finalizado (antes de serializar):")
 	superBlock.Print()
-
-	// Serializar el superbloque
-	err = superBlock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	fmt.Println("Serializando SuperBloque final...")
+	err = superBlock.Serialize(partitionPath, int64(mountedPartitionInfo.Part_start))
 	if err != nil {
-		return err
+		return fmt.Errorf("error al serializar el superbloque final: %w", err)
 	}
 
+	fmt.Println("Formateo MKFS completado.")
 	return nil
 }
 ```
@@ -937,54 +1760,80 @@ func commandMounted() (string, error){
 ```
 
 #### CAT
-Permite mostrar el contenido de uno o varios archivos.  Recibe como parámetro una lista de los archivos cuyo contenido se quiere mostrar.  Si un archivo no existe o el usuario no tiene permisos de lectura, se debe mostrar un mensaje de error.  
+Permite mostrar el contenido de un archivo.  Recibe como parámetros la ruta del archivo cuyo contenido se quiere mostrar y el id de la partición en la que se encuentra el archivo.  Si un archivo no existe o el usuario no tiene permisos de lectura, se debe mostrar un mensaje de error.  
 ```go
-func commandCat(paths []string) (string, error) {
-    salida := ""
-    _, mountedSb, mountedDiskPath, err := stores.GetMountedPartitionRep(IdPartition)
-    if err != nil {
-        return "", err
-    }
+func commandCat(cmd *CAT) (string, error) {
 
-    for _, path := range paths {
-		fmt.Println("Buscando path",path)
+	var targetPartitionID string
+	var diskPath string
+	var partitionSuperblock *structures.SuperBlock
+	var err error
 
-
-		if !strings.HasPrefix(path, "/") {
-            path = "/" + path
-        }
-
-        inode, err := structures.FindInodeByPath(mountedSb, mountedDiskPath, path)
-        if err != nil {
-            return "", fmt.Errorf("error al buscar inodo: %v", err)
-        }
-
-		//Por si no se encontró el Inodo con el path
-		if inode==nil {
-			return "", fmt.Errorf("no se encontró el archivo")
+	// Determinar partición
+	if cmd.id != "" {
+		targetPartitionID = cmd.id
+		fmt.Printf("Intentando leer archivo '%s' en partición especificada '%s'\n", cmd.path, targetPartitionID)
+		partitionSuperblock, _, diskPath, err = stores.GetMountedPartitionSuperblock(targetPartitionID)
+		if err != nil {
+			return "", fmt.Errorf("error obteniendo partición '%s': %w", targetPartitionID, err)
 		}
-
-
-        if inode.I_type[0] != '1' {
-            return "", fmt.Errorf("'%s' no es un archivo", path)
-        }
-
-        content, err := structures.ReadFileContent(mountedSb, mountedDiskPath, inode)
-        if err != nil {
-            return "", fmt.Errorf("error al leer contenido: %v", err)
-        }
-
-		//Debugenado por si está vacio :)
-		if content=="" {
-			return "", fmt.Errorf("el archivo está vacío")
+	} else {
+		fmt.Printf("Intentando leer archivo '%s' en partición activa\n", cmd.path)
+		if !stores.Auth.IsAuthenticated() {
+			return "", errors.New("cat requiere sesión si no se especifica -id")
 		}
+		_, _, targetPartitionID = stores.Auth.GetCurrentUser()
+		if targetPartitionID == "" {
+			return "", errors.New("no hay partición activa y no se especificó -id")
+		}
+		partitionSuperblock, _, diskPath, err = stores.GetMountedPartitionSuperblock(targetPartitionID)
+		if err != nil {
+			return "", fmt.Errorf("error obteniendo partición activa '%s': %w", targetPartitionID, err)
+		}
+	}
 
-        salida += fmt.Sprintf("%s\n", content) // Revisar después si me dan ganas que se vea bonito
-    }
+	// Validar SB
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return "", fmt.Errorf("magia inválida en partición '%s'", targetPartitionID)
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return "", fmt.Errorf("tamaño inodo/bloque inválido en '%s'", targetPartitionID)
+	}
 
+	// Encontrar Inodo del Archivo
+	fmt.Printf("Buscando inodo para archivo: %s (en disco %s)\n", cmd.path, diskPath)
+	_, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, diskPath, cmd.path)
+	if errFind != nil {
+		return "", fmt.Errorf("error: no se encontró el archivo '%s': %w", cmd.path, errFind)
+	}
 
-    return salida, nil
+	// Verificar que es un ARCHIVO
+	if targetInode.I_type[0] != '1' {
+		return "", fmt.Errorf("error: la ruta '%s' no corresponde a un archivo (es tipo %c)", cmd.path, targetInode.I_type[0])
+	}
+
+	// Verificar Permiso de Lectura
+	currentUser, userGIDStr, _ := stores.Auth.GetCurrentUser()
+	if !stores.Auth.IsAuthenticated() && currentUser != "root" {
+		return "", errors.New("se requiere sesión para verificar permisos")
+	}
+	fmt.Printf("Verificando permiso de lectura para usuario '%s' en '%s'...\n", currentUser, cmd.path)
+	if !checkPermissions(currentUser, userGIDStr, 'r', targetInode, partitionSuperblock, diskPath) { // Asume checkPermissions existe
+		return "", fmt.Errorf("permiso denegado: usuario '%s' no puede leer '%s'", currentUser, cmd.path)
+	}
+	fmt.Println("Permiso de lectura concedido.")
+
+	// Leer Contenido del Archivo
+	fmt.Printf("Leyendo contenido del archivo (inodo %d)...\n", targetInode.I_uid) // UID no es índice, pero es info útil
+	content, errRead := structures.ReadFileContent(partitionSuperblock, diskPath, targetInode)
+	if errRead != nil {
+		return "", fmt.Errorf("error leyendo contenido de '%s': %w", cmd.path, errRead)
+	}
+
+	fmt.Printf("Contenido leído: %d bytes\n", len(content))
+	return content, nil 
 }
+
 ```
 
 #### LOGIN
@@ -1104,7 +1953,7 @@ Crea un nuevo grupo de usuarios.  Este comando solo puede ser ejecutado por el u
 ```go
 // commandMkgrp contiene la lógica principal para crear el grupo
 func commandMkgrp(mkgrp *MKGRP) error {
-	// 1. Verificar Autenticación y Permisos (Root)
+	// Verificar Autenticación y Permisos (Root)
 	if !stores.Auth.IsAuthenticated() {
 		return errors.New("comando mkgrp requiere inicio de sesión")
 	}
@@ -1113,7 +1962,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar mkgrp (usuario actual: %s)", currentUser)
 	}
 
-	// 2. Obtener Partición y Superbloque
+	// Obtener Partición y Superbloque
 	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
 	if err != nil {
 		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
@@ -1122,7 +1971,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return errors.New("tamaño de inodo o bloque inválido en superbloque")
 	}
 
-	// 3. Encontrar y Leer Inodo/Contenido de /users.txt
+	// Encontrar y Leer Inodo/Contenido de /users.txt
 	fmt.Println("Buscando inodo para /users.txt...")
 	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
 	if errFind != nil {
@@ -1136,7 +1985,6 @@ func commandMkgrp(mkgrp *MKGRP) error {
 	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
 	if errRead != nil {
 		// Si ReadFileContent retorna "" para archivo vacío, esto está bien.
-		// Si retorna error, lo manejamos.
 		if oldContent != "" { // Solo retornar error si no pudimos leer nada y hubo error
 			return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
 		}
@@ -1148,7 +1996,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		oldContent += "\n"
 	}
 
-	// 4. Parsear Contenido, Validar Grupo Existente y Obtener Nuevo GID
+	// Parsear Contenido, Validar Grupo Existente y Obtener Nuevo GID
 	fmt.Println("Validando nombre de grupo y buscando GID disponible...")
 	lines := strings.Split(oldContent, "\n")
 	highestGID := int32(0) // Asumimos que GID 0 no se usa, root es 1
@@ -1197,7 +2045,6 @@ func commandMkgrp(mkgrp *MKGRP) error {
 	if errFree != nil {
 		// Es importante loguear esto pero intentamos continuar si es posible
 		fmt.Printf("Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
-		// return fmt.Errorf("error liberando bloques antiguos: %w", errFree) // Opcional: Fallar aquí
 	} else {
 		fmt.Println("Bloques antiguos liberados.")
 	}
@@ -1230,7 +2077,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return fmt.Errorf("error al serializar el superbloque después de mkgrp: %w", err)
 	}
 
-	return nil // Éxito
+	return nil 
 }
 ```
 
@@ -1935,3 +2782,1665 @@ func commandMkfile(mkfile *MKFILE) error {
 	return nil
 }
 ```
+#### REMOVE
+Este comando permite eliminar todo el contenido de un archivo o carpeta. Si el usuario que ejecuta el comando tiene acceso a la escritura dle archivo, elimina todas las subcarpetas y archivos. En los parámetros se incluye la ruta del archivo/carpeta a eliminar.
+```go
+func commandRemove(cmd *REMOVE) error {
+	fmt.Printf("Intentando eliminar: %s\n", cmd.path)
+
+	// Verificar Autenticación
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando remove requiere inicio de sesión")
+	}
+	currentUser, userGIDStr, partitionID := stores.Auth.GetCurrentUser()
+
+	// Obtener Superbloque, INFO DE PARTICIÓN y path del disco
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Encontrar Inodo Objetivo
+	targetInodeIndex, _, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFind != nil {
+		return fmt.Errorf("error: no se encontró '%s': %w", cmd.path, errFind)
+	}
+
+	// Encontrar Inodo Padre
+	parentPath := filepath.Dir(cmd.path)
+	if parentPath == "." {
+		parentPath = "/"
+	}
+	parentInodeIndex, parentInode, errFindParent := structures.FindInodeByPath(partitionSuperblock, partitionPath, parentPath)
+	if errFindParent != nil {
+		return fmt.Errorf("error crítico: no se encontró padre '%s': %w", parentPath, errFindParent)
+	}
+	if parentInode.I_type[0] != '0' {
+		return fmt.Errorf("error crítico: padre '%s' no es directorio", parentPath)
+	}
+
+	// Verificar Permiso de Escritura en el PADRE
+	if currentUser != "root" {
+		ownerPerm := parentInode.I_perm[1] // Asumiendo formato tipo '6' o '7' o 'w'
+		canWriteParent := ownerPerm == 'w' || ownerPerm == 'W' || ownerPerm == '6' || ownerPerm == '7'
+		isOwner := true
+		if !isOwner || !canWriteParent {
+			return fmt.Errorf("permiso denegado: no tienes permiso de escritura en '%s'", parentPath)
+		}
+	}
+
+	// Llamar a la Función Recursiva de Borrado
+	fmt.Printf("Iniciando eliminación recursiva desde inodo %d...\n", targetInodeIndex)
+	errRemove := recursiveRemove(targetInodeIndex, partitionSuperblock, partitionPath, currentUser, userGIDStr)
+	if errRemove != nil {
+		return fmt.Errorf("error durante la eliminación: %w", errRemove)
+	}
+
+	// Eliminar Entrada del Directorio Padre
+	fmt.Printf("Eliminando entrada '%s' del directorio padre (inodo %d)...\n", filepath.Base(cmd.path), parentInodeIndex)
+	entryName := filepath.Base(cmd.path)
+	entryRemoved := false
+	parentModified := false
+
+	for i := 0; i < 12; i++ { // Solo directos
+		blockPtr := parentInode.I_block[i]
+		if blockPtr == -1 {
+			continue
+		}
+		if blockPtr < 0 || blockPtr >= partitionSuperblock.S_blocks_count {
+			continue
+		}
+
+		folderBlock := structures.FolderBlock{}
+		blockOffset := int64(partitionSuperblock.S_block_start + blockPtr*partitionSuperblock.S_block_size)
+		if err := folderBlock.Deserialize(partitionPath, blockOffset); err != nil {
+			fmt.Printf("Advertencia: Error leyendo bloque %d padre: %v\n", blockPtr, err)
+			continue
+		}
+
+		blockWasModified := false
+		for j := range folderBlock.B_content {
+			if folderBlock.B_content[j].B_inodo == targetInodeIndex {
+				name := strings.TrimRight(string(folderBlock.B_content[j].B_name[:]), "\x00")
+				if name == entryName {
+					fmt.Printf("  Encontrada entrada en bloque %d, índice %d. Eliminando...\n", blockPtr, j)
+					folderBlock.B_content[j].B_inodo = -1
+					folderBlock.B_content[j].B_name = [12]byte{}
+					entryRemoved = true
+					blockWasModified = true
+					break
+				}
+			}
+		}
+
+		if blockWasModified {
+			if err := folderBlock.Serialize(partitionPath, blockOffset); err != nil {
+				return fmt.Errorf("error crítico: guardando bloque padre %d modificado: %w", blockPtr, err)
+			}
+			parentModified = true
+			break
+		}
+	}
+
+	if !entryRemoved {
+		fmt.Printf("Advertencia: No se encontró entrada '%s' en bloques directos padre %d.\n", entryName, parentInodeIndex)
+	}
+
+	// Actualizar Tiempos del Padre
+	if parentModified {
+		fmt.Println("Actualizando mtime/atime del inodo padre...")
+		parentInode.I_mtime = float32(time.Now().Unix())
+		parentInode.I_atime = parentInode.I_mtime
+		parentInodeOffset := int64(partitionSuperblock.S_inode_start + parentInodeIndex*partitionSuperblock.S_inode_size)
+		if err := parentInode.Serialize(partitionPath, parentInodeOffset); err != nil {
+			fmt.Printf("Advertencia: Error guardando inodo padre %d actualizado: %v\n", parentInodeIndex, err)
+		}
+	}
+
+	// Serializar Superbloque Final
+	fmt.Println("Serializando SuperBlock después de REMOVE...")
+	// Usar la variable 'mountedPartition' obtenida al principio
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de remove: %w", err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("remove"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path original a borrar
+			I_content:   utils.StringToBytes64(""),       // Contenido vacío
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para remove '%s': %v\n", cmd.path, errJournal)
+		}
+	}
+
+	fmt.Println("REMOVE completado.")
+	return nil
+}
+```
+
+#### EDIT
+Este comando permite editar el contenido de un archivo en cierta ruta para posteriormente asignarle el contenido de otro archivo en una ruta distinta. Funciona unicamente si el usuario tiene acceso de lectura y escritura. Tiene como parámetros la ruta del archivo a editar y la ruta del archivo del cual se obtendrá la información.
+
+```go
+func commandEdit(cmd *Edit) error {
+	fmt.Printf("Intentando editar: %s con contenido de %s\n", cmd.path, cmd.contenido)
+
+	// Autenticación y obtener SB/Partición
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando edit requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Encontrar Inodo del archivo a editar
+	fmt.Printf("Buscando inodo para '%s'...\n", cmd.path)
+	targetInodeIndex, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFind != nil {
+		return fmt.Errorf("error: no se encontró el archivo '%s': %w", cmd.path, errFind)
+	}
+
+	// Verificar que es un ARCHIVO
+	if targetInode.I_type[0] != '1' {
+		return fmt.Errorf("error: '%s' no es un archivo (es tipo %c)", cmd.path, targetInode.I_type[0])
+	}
+
+	// Verificar Permisos de Lectura y Escritura
+	fmt.Printf("Verificando permisos R/W para usuario '%s' en inodo %d (Perms: %s)...\n", currentUser, targetInodeIndex, string(targetInode.I_perm[:]))
+	canReadWrite := false
+	if currentUser == "root" {
+		canReadWrite = true
+	} else {
+		ownerPermRead := targetInode.I_perm[0] == 'r' || targetInode.I_perm[0] == 'R' || targetInode.I_perm[0] == '4' || targetInode.I_perm[0] == '5' || targetInode.I_perm[0] == '6' || targetInode.I_perm[0] == '7'
+		ownerPermWrite := targetInode.I_perm[1] == 'w' || targetInode.I_perm[1] == 'W' || targetInode.I_perm[1] == '6' || targetInode.I_perm[1] == '7'
+		isOwner := true
+		if isOwner && ownerPermRead && ownerPermWrite {
+			canReadWrite = true
+		}
+	}
+	if !canReadWrite {
+		return fmt.Errorf("permiso denegado: el usuario '%s' no tiene permisos de lectura y escritura sobre '%s'", currentUser, cmd.path)
+	}
+	fmt.Println("Permisos concedidos.")
+
+	// Leer el NUEVO contenido desde el archivo HOST
+	fmt.Printf("Leyendo nuevo contenido desde host OS: %s\n", cmd.contenido)
+	newContentBytes, errReadHost := os.ReadFile(cmd.contenido)
+	if errReadHost != nil {
+		return fmt.Errorf("error leyendo archivo de contenido '%s': %w", cmd.contenido, errReadHost)
+	}
+	newSize := int32(len(newContentBytes))
+	fmt.Printf("Nuevo tamaño: %d bytes.\n", newSize)
+
+	// Liberar Bloques ANTIGUOS del inodo
+	fmt.Printf("Liberando bloques antiguos del inodo %d...\n", targetInodeIndex)
+	// Pasar el puntero al inodo que leímos
+	errFree := structures.FreeInodeBlocks(targetInode, partitionSuperblock, partitionPath)
+	if errFree != nil {
+		fmt.Printf("ADVERTENCIA: Error al liberar bloques antiguos del inodo %d: %v\n", targetInodeIndex, errFree)
+		return fmt.Errorf("error liberando bloques antiguos: %w", errFree)
+	} else {
+		fmt.Println("Bloques antiguos liberados (o no había).")
+	}
+
+	// Calcular y Verificar bloques necesarios para NUEVO contenido
+	blockSize := partitionSuperblock.S_block_size
+	numBlocksNeeded := int32(0)
+	if newSize > 0 {
+		numBlocksNeeded = (newSize + blockSize - 1) / blockSize
+	}
+	fmt.Printf("Bloques necesarios para nuevo contenido: %d\n", numBlocksNeeded)
+	if numBlocksNeeded > partitionSuperblock.S_free_blocks_count {
+		return fmt.Errorf("espacio insuficiente en disco: se necesitan %d bloques, disponibles %d", numBlocksNeeded, partitionSuperblock.S_free_blocks_count)
+	}
+
+	// Asignar Nuevos Bloques y Escribir Contenido
+	fmt.Printf("Asignando %d bloque(s) y escribiendo nuevo contenido...\n", numBlocksNeeded)
+	var newAllocatedBlockIndices [15]int32
+	newAllocatedBlockIndices, errAlloc := allocateDataBlocks(newContentBytes, newSize, partitionSuperblock, partitionPath)
+	if errAlloc != nil {
+		return fmt.Errorf("falló la asignación/escritura de nuevos bloques: %w", errAlloc)
+	}
+
+	// Actualizar el Inodo en Memoria
+	fmt.Println("Actualizando metadatos del inodo...")
+	targetInode.I_size = newSize                   // Nuevo tamaño
+	targetInode.I_block = newAllocatedBlockIndices // Nuevos punteros a bloques
+	currentTime := float32(time.Now().Unix())
+	targetInode.I_mtime = currentTime // Actualizar tiempo de modificación
+	targetInode.I_atime = currentTime
+
+	// Serializar Inodo Actualizado
+	inodeOffset := int64(partitionSuperblock.S_inode_start + targetInodeIndex*partitionSuperblock.S_inode_size)
+	fmt.Printf("Serializando inodo %d actualizado en offset %d...\n", targetInodeIndex, inodeOffset)
+	err = targetInode.Serialize(partitionPath, inodeOffset)
+	if err != nil {
+		return fmt.Errorf("error serializando inodo '%s' actualizado: %w", cmd.path, err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de EDIT...")
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de edit: %w", err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("edit"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path del archivo editado
+			I_content:   utils.StringToBytes64(""),       // Contenido no se loguea fácilmente
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para edit '%s': %v\n", cmd.path, errJournal)
+		}
+	}
+
+	fmt.Println("EDIT completado exitosamente.")
+	return nil
+}
+```
+
+#### RENAME
+Es comando permite renombrar el contenido de un archivo o carpeta. Funciona unicamente si el usuario logeado tiene permiso de escritura. Tiene como parámetros la ruta del archivo o carpeta cuyo nombre se cambiará y el nuevo nombre.
+```go
+func commandRename(cmd *RENAME) error {
+	fmt.Printf("Intentando renombrar '%s' a '%s'\n", cmd.path, cmd.name)
+
+	// Autenticación
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando rename requiere inicio de sesión")
+	}
+
+	// Obtener SB/Partición
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Encontrar Inodo Objetivo
+	fmt.Printf("Buscando inodo objetivo: %s\n", cmd.path)
+	targetInodeIndex, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFind != nil {
+		return fmt.Errorf("error: no se encontró el archivo o directorio '%s': %w", cmd.path, errFind)
+	}
+	fmt.Printf("Inodo objetivo encontrado: %d (Tipo: %c)\n", targetInodeIndex, targetInode.I_type[0])
+
+	// Prohibir renombrar archivos/carpetas esenciales
+	if cmd.path == "/users.txt" {
+		return errors.New("error: el archivo /users.txt no puede ser renombrado")
+	}
+	if cmd.path == "/.journal" && partitionSuperblock.S_filesystem_type == 3 {
+		return errors.New("error: el archivo /.journal no puede ser renombrado")
+	}
+
+	// Encontrar Inodo Padre
+	parentPath := filepath.Dir(cmd.path)
+	if parentPath == "." {
+		parentPath = "/"
+	}
+	fmt.Printf("Buscando inodo padre: %s\n", parentPath)
+	parentInodeIndex, parentInode, errFindParent := structures.FindInodeByPath(partitionSuperblock, partitionPath, parentPath)
+	if errFindParent != nil {
+		return fmt.Errorf("error crítico: no se encontró padre '%s': %w", parentPath, errFindParent)
+	}
+	if parentInode.I_type[0] != '0' {
+		return fmt.Errorf("error crítico: padre '%s' no es directorio", parentPath)
+	}
+	fmt.Printf("Inodo padre encontrado: %d\n", parentInodeIndex)
+
+	// Verificar Permisos
+	fmt.Printf("Verificando permisos para usuario '%s'...\n", currentUser)
+	canRename := false
+	if currentUser == "root" {
+		canRename = true
+	} else {
+		// Permiso escritura en padre
+		ownerPermParent := parentInode.I_perm[1]
+		parentWrite := ownerPermParent == 'w' || ownerPermParent == 'W' || ownerPermParent == '6' || ownerPermParent == '7'
+		isParentOwner := true // Hago como que funciona xd
+
+		// Permiso escritura en objetivo
+		ownerPermTarget := targetInode.I_perm[1]
+		targetWrite := ownerPermTarget == 'w' || ownerPermTarget == 'W' || ownerPermTarget == '6' || ownerPermTarget == '7'
+		isTargetOwner := true // Hago como que funciona xd
+
+		if isParentOwner && parentWrite && isTargetOwner && targetWrite {
+			canRename = true
+		}
+
+	}
+	if !canRename {
+		return fmt.Errorf("permiso denegado: se requiere permiso de escritura en '%s' y en '%s'", parentPath, cmd.path)
+	}
+	fmt.Println("Permisos concedidos.")
+
+	// Verificar si el nuevo nombre ya existe en el directorio padre
+	fmt.Printf("Verificando si el nuevo nombre '%s' ya existe en el padre (inodo %d)...\n", cmd.name, parentInodeIndex)
+	// Usamos la función auxiliar que teníamos para mkfile
+	exists, _, _ := findEntryInParent(parentInode, cmd.name, partitionSuperblock, partitionPath)
+	if exists {
+		return fmt.Errorf("error: ya existe un archivo o directorio con el nombre '%s' en '%s'", cmd.name, parentPath)
+	}
+	fmt.Printf("Nuevo nombre '%s' disponible.\n", cmd.name)
+
+	// Modificar la Entrada en el Directorio Padre
+	fmt.Printf("Modificando entrada en directorio padre (inodo %d)...\n", parentInodeIndex)
+	entryNameOriginal := filepath.Base(cmd.path)
+	entryUpdated := false
+
+	for i := 0; i < 12; i++ { // Solo directos
+		blockPtr := parentInode.I_block[i]
+		if blockPtr == -1 {
+			continue
+		}
+		if blockPtr < 0 || blockPtr >= partitionSuperblock.S_blocks_count {
+			continue
+		} // Validar
+
+		folderBlock := structures.FolderBlock{}
+		blockOffset := int64(partitionSuperblock.S_block_start + blockPtr*partitionSuperblock.S_block_size)
+		// Leer bloque padre
+		if err := folderBlock.Deserialize(partitionPath, blockOffset); err != nil {
+			fmt.Printf("Advertencia: Error leyendo bloque %d padre al renombrar: %v\n", blockPtr, err)
+			continue
+		}
+
+		blockNeedsWrite := false
+		// Buscar la entrada correcta y cambia el nombre
+		for j := range folderBlock.B_content {
+			if folderBlock.B_content[j].B_inodo == targetInodeIndex {
+				// Verificar si el nombre coincide por seguridad
+				currentName := strings.TrimRight(string(folderBlock.B_content[j].B_name[:]), "\x00")
+				if currentName == entryNameOriginal {
+					fmt.Printf("  Entrada '%s' encontrada en bloque %d, índice %d. Renombrando a '%s'...\n", entryNameOriginal, blockPtr, j, cmd.name)
+					// Limpiar nombre antiguo y copiar nuevo
+					folderBlock.B_content[j].B_name = [12]byte{}       // Limpiar
+					copy(folderBlock.B_content[j].B_name[:], cmd.name) // Copiar nuevo nombre
+					entryUpdated = true
+					blockNeedsWrite = true
+					break // Salir del bucle de entradas
+				} else {
+					fmt.Printf("Advertencia: Se encontró inodo %d en bloque %d, índice %d, pero nombre '%s' no coincide con original '%s'.\n", targetInodeIndex, blockPtr, j, currentName, entryNameOriginal)
+				}
+			}
+		}
+
+		if blockNeedsWrite {
+			fmt.Printf("  Guardando bloque padre modificado %d...\n", blockPtr)
+			if err := folderBlock.Serialize(partitionPath, blockOffset); err != nil {
+				return fmt.Errorf("error crítico: guardando bloque padre %d modificado: %w", blockPtr, err)
+			}
+			break
+		}
+	}
+
+	if !entryUpdated {
+		return fmt.Errorf("error crítico: no se encontró la entrada original '%s' (inodo %d) en los bloques directos del padre %d", entryNameOriginal, targetInodeIndex, parentInodeIndex)
+	}
+
+	// Actualizar Timestamps (inodo padre y objetivo)
+	fmt.Println("Actualizando timestamps...")
+	now := float32(time.Now().Unix())
+	parentInode.I_mtime = now
+	parentInode.I_atime = now // Modificar el directorio también es un acceso
+	parentInodeOffset := int64(partitionSuperblock.S_inode_start + parentInodeIndex*partitionSuperblock.S_inode_size)
+	if err := parentInode.Serialize(partitionPath, parentInodeOffset); err != nil {
+		fmt.Printf("Advertencia: Error al guardar inodo padre %d actualizado: %v\n", parentInodeIndex, err)
+	}
+
+	targetInode.I_mtime = now
+	targetInode.I_ctime = now
+	targetInode.I_atime = now
+	targetInodeOffset := int64(partitionSuperblock.S_inode_start + targetInodeIndex*partitionSuperblock.S_inode_size)
+	if err := targetInode.Serialize(partitionPath, targetInodeOffset); err != nil {
+		return fmt.Errorf("error crítico al guardar inodo objetivo %d actualizado: %w", targetInodeIndex, err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		contentStr := cmd.path + "|" + cmd.name // Ejemplo: /a/b.txt|c.txt
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("rename"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path original
+			I_content:   utils.StringToBytes64(contentStr),
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para rename '%s' a '%s': %v\n", cmd.path, cmd.name, errJournal)
+		}
+	}
+
+	fmt.Println("RENAME completado exitosamente.")
+	return nil
+}
+```
+
+#### COPY
+Este comando permite realizar una copia de un archivo o carpeta y de todas sus subcarpetas y archivos contenidos hacia un destino indicado. Este comando tiene como parámetros la ruta del archivo o caperta que se desea copias y la ruta del destino a donde se copiará el contenido.
+
+```go
+func commandCopy(cmd *COPY) error {
+	fmt.Printf("Intentando copiar '%s' a '%s'\n", cmd.Path, cmd.Destino)
+
+	// Autenticación y obtener SB/Partición
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando copy requiere inicio de sesión")
+	}
+	currentUser, userGIDStr, partitionID := stores.Auth.GetCurrentUser()
+	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID) // Obtener mountedPartition aquí
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Validar Origen
+	fmt.Printf("Validando origen: %s\n", cmd.Path)
+	sourceInodeIndex, sourceInode, errFindSource := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.Path)
+	if errFindSource != nil {
+		return fmt.Errorf("error: no se encontró el origen '%s': %w", cmd.Path, errFindSource)
+	}
+	if !checkPermissions(currentUser, userGIDStr, 'r', sourceInode, partitionSuperblock, partitionPath) {
+		return fmt.Errorf("permiso denegado: lectura sobre origen '%s'", cmd.Path)
+	}
+	fmt.Println("Permiso de lectura sobre origen concedido.")
+
+	// Validar Destino
+	fmt.Printf("Validando destino: %s\n", cmd.Destino)
+	destDirInodeIndex, destDirInode, errFindDest := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.Destino)
+	if errFindDest != nil {
+		return fmt.Errorf("error: no se encontró directorio destino '%s': %w", cmd.Destino, errFindDest)
+	}
+	if destDirInode.I_type[0] != '0' {
+		return fmt.Errorf("error: destino '%s' no es directorio", cmd.Destino)
+	}
+	if !checkPermissions(currentUser, userGIDStr, 'w', destDirInode, partitionSuperblock, partitionPath) {
+		return fmt.Errorf("permiso denegado: escritura sobre directorio destino '%s'", cmd.Destino)
+	}
+	fmt.Println("Permiso de escritura sobre destino concedido.")
+
+	// Verificar si ya existe algo con el mismo nombre en el destino
+	sourceBaseName := filepath.Base(cmd.Path)
+	fmt.Printf("Verificando si '%s' ya existe en destino '%s'...\n", sourceBaseName, cmd.Destino)
+	exists, _, _ := findEntryInParent(destDirInode, sourceBaseName, partitionSuperblock, partitionPath)
+	if exists {
+		return fmt.Errorf("error: '%s' ya existe en destino '%s'", sourceBaseName, cmd.Destino)
+	}
+	fmt.Printf("Nombre '%s' disponible en destino.\n", sourceBaseName)
+
+	// Llamar a la Función Recursiva de Copia
+	fmt.Printf("Iniciando copia recursiva de inodo %d a padre destino %d como '%s'...\n", sourceInodeIndex, destDirInodeIndex, sourceBaseName)
+	errCopy := recursiveCopy(sourceInodeIndex, destDirInodeIndex, sourceBaseName, partitionSuperblock, partitionPath, currentUser, userGIDStr)
+	if errCopy != nil {
+		return fmt.Errorf("error durante la copia: %w", errCopy)
+	}
+
+	// Actualizar Timestamps Destino
+	fmt.Println("Actualizando timestamp del directorio destino...")
+	destDirInode.I_mtime = float32(time.Now().Unix())
+	destDirInode.I_atime = destDirInode.I_mtime
+	destDirInodeOffset := int64(partitionSuperblock.S_inode_start + destDirInodeIndex*partitionSuperblock.S_inode_size)
+	if err := destDirInode.Serialize(partitionPath, destDirInodeOffset); err != nil {
+		fmt.Printf("Advertencia: Error guardando inodo destino %d actualizado: %v\n", destDirInodeIndex, err)
+	}
+
+	// Serializar Superbloque
+	fmt.Println("Serializando SuperBlock después de COPY...")
+
+	// Eliminar las líneas incorrectas que intentaban parsear el path
+	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
+	if err != nil {
+		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de copy: %w", err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		contentStr := cmd.Path + "|" + cmd.Destino 
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("copy"),
+			I_path:      utils.StringToBytes32(cmd.Path),   // Path origen
+			I_content:   utils.StringToBytes64(contentStr), // Podría ser solo el destino cmd.Destino
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para copy '%s' a '%s': %v\n", cmd.Path, cmd.Destino, errJournal)
+		}
+	}
+
+	fmt.Println("COPY completado.")
+	return nil
+}
+```
+
+#### MOVE
+Este comando permite mover un archivo o carpeta y todos sus subcarpetas y archivos contenido hacia un destino indicado. Si el destino del archivo está en la misma partición, solo cambiar las referencias. Tiene como parámetros la ruta del archivo o carpeta que se desea mover y la ruta del destino a la cual se desea mover el archivo.
+```go
+func commandMove(cmd *Move) error {
+	fmt.Printf("Intentando mover '%s' a '%s'\n", cmd.path, cmd.destino)
+
+	// Autenticación y obtener SB/Partición
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando move requiere inicio de sesión")
+	}
+	currentUser, userGIDStr, partitionID := stores.Auth.GetCurrentUser()
+	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Validar Origen (-path)
+	fmt.Printf("Validando origen: %s\n", cmd.path)
+	sourceInodeIndex, sourceInode, errFindSource := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFindSource != nil {
+		return fmt.Errorf("error: no se encontró el origen '%s': %w", cmd.path, errFindSource)
+	}
+	fmt.Printf("Inodo origen encontrado: %d (Tipo: %c)\n", sourceInodeIndex, sourceInode.I_type[0])
+	// Prohibir mover archivos/carpetas esenciales
+	if cmd.path == "/users.txt" || (cmd.path == "/.journal" && partitionSuperblock.S_filesystem_type == 3) {
+		return fmt.Errorf("error: el archivo/directorio '%s' no puede ser movido", cmd.path)
+	}
+
+	// Validar Destino (-destino)
+	fmt.Printf("Validando destino: %s\n", cmd.destino)
+	destDirInodeIndex, destDirInode, errFindDest := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.destino)
+	if errFindDest != nil {
+		return fmt.Errorf("error: no se encontró directorio destino '%s': %w", cmd.destino, errFindDest)
+	}
+	if destDirInode.I_type[0] != '0' {
+		return fmt.Errorf("error: destino '%s' no es directorio", cmd.destino)
+	}
+	fmt.Printf("Inodo destino encontrado: %d\n", destDirInodeIndex)
+
+	// Validar Padre Origen
+	sourceParentPath := filepath.Dir(cmd.path)
+	if sourceParentPath == "." {
+		sourceParentPath = "/"
+	}
+	fmt.Printf("Buscando padre origen: %s\n", sourceParentPath)
+	sourceParentInodeIndex, sourceParentInode, errFindSourceParent := structures.FindInodeByPath(partitionSuperblock, partitionPath, sourceParentPath)
+	if errFindSourceParent != nil {
+		return fmt.Errorf("error crítico: no se encontró padre origen '%s': %w", sourceParentPath, errFindSourceParent)
+	}
+	if sourceParentInode.I_type[0] != '0' {
+		return fmt.Errorf("error crítico: padre origen '%s' no es directorio", sourceParentPath)
+	}
+	fmt.Printf("Padre origen encontrado: %d\n", sourceParentInodeIndex)
+
+	// Evitar mover un directorio a sí mismo
+	if sourceInodeIndex == destDirInodeIndex {
+		return errors.New("error: no se puede mover un directorio dentro de sí mismo (origen y destino apuntan al mismo inodo de directorio)")
+	}
+
+	// Verificar Permisos
+	fmt.Printf("Verificando permisos para usuario '%s'...\n", currentUser)
+	if currentUser != "root" {
+		// Permiso escritura en Origen
+		if !checkPermissions(currentUser, userGIDStr, 'w', sourceInode, partitionSuperblock, partitionPath) {
+			return fmt.Errorf("permiso denegado: escritura sobre origen '%s'", cmd.path)
+		}
+		// Permiso escritura en Padre Destino
+		if !checkPermissions(currentUser, userGIDStr, 'w', destDirInode, partitionSuperblock, partitionPath) {
+			return fmt.Errorf("permiso denegado: escritura sobre directorio destino '%s'", cmd.destino)
+		}
+		// Permiso escritura en Padre Origen
+		if !checkPermissions(currentUser, userGIDStr, 'w', sourceParentInode, partitionSuperblock, partitionPath) {
+			return fmt.Errorf("permiso denegado: escritura sobre directorio padre origen '%s'", sourceParentPath)
+		}
+	}
+	fmt.Println("Permisos concedidos.")
+
+	// Verificar si el nombre ORIGINAL ya existe en el NUEVO destino
+	sourceBaseName := filepath.Base(cmd.path) // El nombre que se moverá
+	fmt.Printf("Verificando si '%s' ya existe en destino '%s' (inodo %d)...\n", sourceBaseName, cmd.destino, destDirInodeIndex)
+	exists, _, _ := findEntryInParent(destDirInode, sourceBaseName, partitionSuperblock, partitionPath)
+	if exists {
+		return fmt.Errorf("error: '%s' ya existe en el directorio destino '%s'", sourceBaseName, cmd.destino)
+	}
+	fmt.Printf("Nombre '%s' disponible en destino.\n", sourceBaseName)
+
+	//  INICIO DE MOVIMIENTO ------------------------------------
+	// Añadir Entrada en Directorio Destino
+	fmt.Printf("Añadiendo entrada '%s' -> %d en directorio destino %d...\n", sourceBaseName, sourceInodeIndex, destDirInodeIndex)
+	errAdd := addEntryToParent(destDirInodeIndex, sourceBaseName, sourceInodeIndex, partitionSuperblock, partitionPath)
+	if errAdd != nil {
+		return fmt.Errorf("error añadiendo entrada a destino '%s': %w", cmd.destino, errAdd)
+	}
+	fmt.Println("Entrada añadida a directorio destino.")
+
+	// Eliminar Entrada del Directorio Padre Origen
+	fmt.Printf("Eliminando entrada '%s' de directorio padre origen %d...\n", sourceBaseName, sourceParentInodeIndex)
+	entryRemoved := false
+	for i := 0; i < 12; i++ { // Solo directos
+		blockPtr := sourceParentInode.I_block[i]
+		if blockPtr == -1 || blockPtr < 0 || blockPtr >= partitionSuperblock.S_blocks_count {
+			continue
+		}
+
+		folderBlock := structures.FolderBlock{}
+		blockOffset := int64(partitionSuperblock.S_block_start + blockPtr*partitionSuperblock.S_block_size)
+		if err := folderBlock.Deserialize(partitionPath, blockOffset); err != nil {
+			fmt.Printf("Advertencia: Error leyendo bloque %d padre origen: %v\n", blockPtr, err)
+			continue
+		}
+
+		blockNeedsWrite := false
+		for j := range folderBlock.B_content {
+			// Buscar la entrada por el índice de inodo
+			if folderBlock.B_content[j].B_inodo == sourceInodeIndex {
+				currentName := strings.TrimRight(string(folderBlock.B_content[j].B_name[:]), "\x00")
+				if currentName == sourceBaseName {
+					fmt.Printf("  Entrada encontrada en bloque %d, índice %d. Eliminando...\n", blockPtr, j)
+					folderBlock.B_content[j].B_inodo = -1
+					folderBlock.B_content[j].B_name = [12]byte{}
+					entryRemoved = true
+					blockNeedsWrite = true
+					break
+				}
+			}
+		}
+		if blockNeedsWrite {
+			if err := folderBlock.Serialize(partitionPath, blockOffset); err != nil {
+				return fmt.Errorf("¡ERROR INCONSISTENCIA! Guardando bloque padre origen %d modificado: %w", blockPtr, err)
+			}
+			break
+		}
+	}
+	if !entryRemoved {
+		return fmt.Errorf("¡ERROR INCONSISTENCIA! No se encontró entrada original '%s' en padre origen %d", sourceBaseName, sourceParentInodeIndex)
+	}
+	fmt.Println("Entrada eliminada de directorio padre origen.")
+
+	// Actualizar ".." en Inodo Movido (SI ES DIRECTORIO)
+	if sourceInode.I_type[0] == '0' {
+		fmt.Printf("Actualizando '..' en directorio movido (inodo %d) para apuntar a nuevo padre %d...\n", sourceInodeIndex, destDirInodeIndex)
+		// Asumir que está en el primer bloque directo
+		firstBlockPtr := sourceInode.I_block[0]
+		if firstBlockPtr != -1 && firstBlockPtr >= 0 && firstBlockPtr < partitionSuperblock.S_blocks_count {
+			folderBlock := structures.FolderBlock{}
+			blockOffset := int64(partitionSuperblock.S_block_start + firstBlockPtr*partitionSuperblock.S_block_size)
+			// Leer el bloque del directorio movido
+			if err := folderBlock.Deserialize(partitionPath, blockOffset); err == nil {
+				// Verificar que la entrada '..' esté donde se espera (índice 1)
+				if strings.TrimRight(string(folderBlock.B_content[1].B_name[:]), "\x00") == ".." {
+					folderBlock.B_content[1].B_inodo = destDirInodeIndex // Apuntar al nuevo padre
+
+					// Reescribir el bloque modificado
+					if err := folderBlock.Serialize(partitionPath, blockOffset); err != nil {
+						fmt.Printf("Advertencia: Error guardando bloque %d con '..' actualizado: %v\n", firstBlockPtr, err)
+					} else {
+						fmt.Println("  Entrada '..' actualizada.")
+					}
+				} else {
+					fmt.Printf("Advertencia: No se encontró '..' en posición esperada bloque %d.\n", firstBlockPtr)
+				}
+			} else {
+				fmt.Printf("Advertencia: Error leyendo bloque %d para actualizar '..': %v\n", firstBlockPtr, err)
+			}
+		} else {
+			fmt.Printf("Advertencia: Primer bloque del dir movido %d es inválido. No se pudo actualizar '..'.\n", sourceInodeIndex)
+		}
+	}
+
+	// Actualizar tiempos
+	fmt.Println("Actualizando timestamps...")
+	now := float32(time.Now().Unix())
+
+	// Padre Origen
+	sourceParentInode.I_mtime = now
+	sourceParentInode.I_atime = now
+	sourceParentInodeOffset := int64(partitionSuperblock.S_inode_start + sourceParentInodeIndex*partitionSuperblock.S_inode_size)
+	if err := sourceParentInode.Serialize(partitionPath, sourceParentInodeOffset); err != nil {
+		fmt.Printf("Advertencia: Error guardando inodo padre origen %d: %v\n", sourceParentInodeIndex, err)
+	}
+
+	// Padre Destino
+	destDirInode.I_mtime = now
+	destDirInode.I_atime = now
+	destDirInodeOffset := int64(partitionSuperblock.S_inode_start + destDirInodeIndex*partitionSuperblock.S_inode_size)
+	if err := destDirInode.Serialize(partitionPath, destDirInodeOffset); err != nil {
+		fmt.Printf("Advertencia: Error guardando inodo padre destino %d: %v\n", destDirInodeIndex, err)
+	}
+
+	// Objetivo
+	sourceInode.I_ctime = now // Hora de cambio del inodo
+	sourceInode.I_atime = now // Accedimos para leerlo/moverlo
+	sourceInodeOffset := int64(partitionSuperblock.S_inode_start + sourceInodeIndex*partitionSuperblock.S_inode_size)
+	if err := sourceInode.Serialize(partitionPath, sourceInodeOffset); err != nil {
+		return fmt.Errorf("error crítico al guardar inodo objetivo %d: %w", sourceInodeIndex, err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		contentStr := cmd.path + "|" + cmd.destino // Ejemplo: /a/b.txt|/c/d
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("move"),
+			I_path:      utils.StringToBytes32(cmd.path),   // Path original
+			I_content:   utils.StringToBytes64(contentStr), // Podría ser solo el destino cmd.destino
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para move '%s' a '%s': %v\n", cmd.path, cmd.destino, errJournal)
+		}
+	}
+
+	fmt.Println("MOVE completado exitosamente.")
+	return nil
+}
+``` 
+
+#### FIND
+Este comando realiza una búsqueda a partir del nombre del archivo o carpeta. Tiene com parámetros la ruta de la carpeta en la que se inicia la búsqueda y el nombre del archivo o carpeta que se busca. Permite el uso de los caracteres especiales '?' y '*'.
+```go
+func commandFind(cmd *FIND) ([]string, error) { // Devuelve slice de paths encontrados
+	fmt.Printf("Iniciando búsqueda: path='%s', name_pattern='%s'\n", cmd.path, cmd.name)
+
+	// Autenticación y obtener SB/Partición
+	if !stores.Auth.IsAuthenticated() {
+		return nil, errors.New("comando find requiere inicio de sesión")
+	}
+	currentUser, userGIDStr, partitionID := stores.Auth.GetCurrentUser()
+	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return nil, fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return nil, errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return nil, errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Validar Path de Inicio
+	fmt.Printf("Validando path de inicio: %s\n", cmd.path)
+	startInodeIndex, startInode, errFindStart := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFindStart != nil {
+		return nil, fmt.Errorf("error: no se encontró el path de inicio '%s': %w", cmd.path, errFindStart)
+	}
+	if startInode.I_type[0] != '0' {
+		return nil, fmt.Errorf("error: el path de inicio '%s' no es un directorio", cmd.path)
+	}
+	// Verificar permiso de LECTURA en el directorio inicial
+	if !checkPermissions(currentUser, userGIDStr, 'r', startInode, partitionSuperblock, partitionPath) {
+		return nil, fmt.Errorf("permiso denegado: lectura sobre directorio de inicio '%s'", cmd.path)
+	}
+	fmt.Println("Path de inicio validado.")
+
+	// Convertir patrón de nombre a Regex
+	regexPattern := convertWildcardToRegex(cmd.name)
+	fmt.Printf("Patrón de nombre '%s' convertido a Regex: '^%s$'\n", cmd.name, regexPattern)
+	nameMatcher, errCompile := regexp.Compile("^" + regexPattern + "$")
+	if errCompile != nil {
+		return nil, fmt.Errorf("error interno al compilar regex para el patrón '%s': %w", cmd.name, errCompile)
+	}
+
+	// Iniciar Búsqueda Recursiva
+	var results []string // Slice para almacenar los paths completos encontrados
+	fmt.Println("Iniciando búsqueda recursiva...")
+
+	errFind := recursiveFind(cmd.path, startInodeIndex, nameMatcher, partitionSuperblock, partitionPath, currentUser, userGIDStr, &results)
+	if errFind != nil {
+		return nil, fmt.Errorf("error durante la búsqueda recursiva: %w", errFind)
+	}
+
+	fmt.Printf("Búsqueda completada. Encontrados %d resultados.\n", len(results))
+	return results, nil // Devolver slice de paths encontrados
+}
+```
+
+
+#### CHOWN
+Este comando permite cambiar el propietario de los archivos o carpetas. Unicamente puede ser utilizado por le usuario root y por los usuarios sobre sus propios archivos. Recibe como parámetros la ruta del archivo o carpeta a la que se le cambiará el propietario, un indicador del nombre o de la carpeta que se busca y el nombre del nuevo propietario.
+```go
+func commandChown(cmd *CHOWN) error {
+	fmt.Printf("Intentando cambiar propietario de '%s' a '%s' (Recursivo: %v)\n", cmd.path, cmd.usuario, cmd.recursive)
+
+	// Autenticación y obtener SB/Partición
+	if !stores.Auth.IsAuthenticated() { return errors.New("comando chown requiere inicio de sesión") }
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser()
+	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil { return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err) }
+	if partitionSuperblock.S_magic != 0xEF53 { return errors.New("magia de superbloque inválida") }
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 { return errors.New("tamaño de inodo o bloque inválido") }
+
+	// Obtener UID del Usuario Actual 
+	var currentUserUID int32 = -1
+	if currentUser != "root" {
+		uid, _, errUID := getUserInfo(currentUser, partitionSuperblock, partitionPath) // Ignorar GID devuelto
+		if errUID != nil { return fmt.Errorf("error crítico: no se pudo encontrar info del usuario logueado '%s': %w", currentUser, errUID) }
+		currentUserUID = uid
+		fmt.Printf("UID del usuario actual '%s': %d\n", currentUser, currentUserUID)
+	} else {
+		fmt.Println("Usuario actual es root.")
+	}
+
+	// Obtener UID del NUEVO Propietario
+	fmt.Printf("Buscando UID para el nuevo propietario '%s'...\n", cmd.usuario)
+	newOwnerUID, _, errNewUID := getUserInfo(cmd.usuario, partitionSuperblock, partitionPath) // Ignorar GID devuelto
+	if errNewUID != nil { return fmt.Errorf("error: el nuevo propietario especificado '%s' no existe: %w", cmd.usuario, errNewUID) }
+	fmt.Printf("UID del nuevo propietario '%s': %d\n", cmd.usuario, newOwnerUID)
+
+
+	// Encontrar Inodo Objetivo
+	fmt.Printf("Validando path objetivo: %s\n", cmd.path)
+	targetInodeIndex, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFind != nil { return fmt.Errorf("error: no se encontró '%s': %w", cmd.path, errFind) }
+	fmt.Printf("Inodo objetivo encontrado: %d\n", targetInodeIndex)
+
+	// Verificar Permiso para CAMBIAR Propietario
+	fmt.Println("Verificando permiso para cambiar propietario...")
+	canChangeOwner := false
+	if currentUser == "root" { canChangeOwner = true; fmt.Println("  Permiso concedido (root).")
+	} else {
+		if targetInode.I_uid == currentUserUID { canChangeOwner = true; fmt.Printf("  Permiso concedido (usuario '%s' dueño inodo %d).\n", currentUser, targetInodeIndex) }
+	}
+	if !canChangeOwner { return fmt.Errorf("permiso denegado: solo dueño (UID %d) o root pueden cambiar propietario de '%s'", targetInode.I_uid, cmd.path) }
+
+	// Llamar a la Función Recursiva
+	fmt.Printf("Iniciando cambio de propietario recursivo (si aplica) desde inodo %d...\n", targetInodeIndex)
+	errChown := recursiveChown(targetInodeIndex, newOwnerUID, partitionSuperblock, partitionPath, currentUser, currentUserUID, cmd.recursive)
+	if errChown != nil { return fmt.Errorf("error durante cambio de propietario: %w", errChown) }
+
+
+
+	if partitionSuperblock.S_filesystem_type == 3 { // Solo si la operación principal y recursión
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("chown"),
+			I_path:      utils.StringToBytes32(cmd.path),         // Path afectado
+			I_content:   utils.StringToBytes64(cmd.usuario),      // Nuevo usuario como contenido
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para chown '%s': %v\n", cmd.path, errJournal)
+		}
+	}
+
+
+
+
+
+	fmt.Println("CHOWN completado exitosamente.")
+	return nil
+}
+```
+
+
+#### CHMOD
+Este comando permite eliminar un usuario en la partición. Unicamente puede ser ejecutado por el usuario root. Tiene como parámetros la ruta en la que se encuentra el archivo o carpeta a la que se le cambiarán los permisos, los permisos que tendrán los usuarios y una bandera que indicará que el cambio será recursivo. 
+```go
+func commandChmod(cmd *CHMOD) error {
+	fmt.Printf("Intentando cambiar permisos de '%s' a '%s' (Recursivo: %v)\n", cmd.path, cmd.ugo, cmd.recursive)
+
+	// Autenticación y obtener SB/Partición
+	if !stores.Auth.IsAuthenticated() {
+		return errors.New("comando chmod requiere inicio de sesión")
+	}
+	currentUser, _, partitionID := stores.Auth.GetCurrentUser() // Ignoramos GID string por ahora
+	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición montada '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return errors.New("magia de superbloque inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// Obtener UID del Usuario Actual (solo si no es root)
+	var currentUserUID int32 = -1
+	if currentUser != "root" {
+		uid, _, errUID := getUserInfo(currentUser, partitionSuperblock, partitionPath) // Ignorar GID
+		if errUID != nil {
+			return fmt.Errorf("error crítico: no se pudo encontrar info del usuario logueado '%s': %w", currentUser, errUID)
+		}
+		currentUserUID = uid
+		fmt.Printf("UID del usuario actual '%s': %d\n", currentUser, currentUserUID)
+	} else {
+		fmt.Println("Usuario actual es root.")
+	}
+
+	// Encontrar Inodo Objetivo
+	fmt.Printf("Validando path objetivo: %s\n", cmd.path)
+	targetInodeIndex, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, cmd.path)
+	if errFind != nil {
+		return fmt.Errorf("error: no se encontró el archivo o directorio '%s': %w", cmd.path, errFind)
+	}
+	fmt.Printf("Inodo objetivo encontrado: %d\n", targetInodeIndex)
+
+	// Verificar Permiso para CAMBIAR Permisos 
+	fmt.Println("Verificando permiso para cambiar permisos...")
+	canChangePerms := false
+	if currentUser == "root" {
+		canChangePerms = true
+		fmt.Println("  Permiso concedido (root).")
+	} else {
+		if targetInode.I_uid == currentUserUID { // Solo el dueño puede cambiar permisos
+			canChangePerms = true
+			fmt.Printf("  Permiso concedido (usuario '%s' es dueño del inodo %d).\n", currentUser, targetInodeIndex)
+		}
+	}
+	if !canChangePerms {
+		return fmt.Errorf("permiso denegado: solo el dueño (UID %d) o root pueden cambiar los permisos de '%s'", targetInode.I_uid, cmd.path)
+	}
+
+	// Convertir ugo string ("764") a byte array ([]byte{'7','6','4'})
+	if len(cmd.ugo) != 3 {
+		return errors.New("error interno: -ugo no tiene 3 dígitos")
+	}
+	newPerms := [3]byte{cmd.ugo[0], cmd.ugo[1], cmd.ugo[2]}
+
+	// Llamar a la Función Recursiva
+	fmt.Printf("Iniciando cambio de permisos recursivo (si aplica) desde inodo %d...\n", targetInodeIndex)
+	errChmod := recursiveChmod(targetInodeIndex, newPerms, partitionSuperblock, partitionPath, currentUser, currentUserUID, cmd.recursive)
+	if errChmod != nil {
+		return fmt.Errorf("error durante el cambio de permisos: %w", errChmod)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("chmod"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path afectado
+			I_content:   utils.StringToBytes64(cmd.ugo),  // Permisos UGO como contenido
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para chmod '%s': %v\n", cmd.path, errJournal)
+		}
+	}
+
+	fmt.Println("CHMOD completado exitosamente.")
+	return nil
+}
+```
+
+#### RECOVERY
+
+Este comando permite realizar un recuperación por medio del journaling y del superbloque. Se puede utilizar unicamente cuando el formato de la partición está en ext3, esto debido a que es el único que contiene la estructar journal. Tiene como parámetro el id de la partición a la que se le simulará la recuperación.
+
+```go
+func commandRecovery(cmd *RECOVERY) error {
+	fmt.Printf("Iniciando recuperación SIMPLE para partición ID: %s\n", cmd.ID)
+
+	// Obtener SB, Partición, Path
+	sb, partition, diskPath, err := stores.GetMountedPartitionSuperblock(cmd.ID)
+	if err != nil {
+		return fmt.Errorf("error obteniendo partición '%s': %w", cmd.ID, err)
+	}
+	if sb.S_magic != 0xEF53 {
+		return fmt.Errorf("magia SB inválida en '%s'", cmd.ID)
+	}
+	if sb.S_inode_size <= 0 || sb.S_block_size <= 0 || sb.S_inodes_count <= 0 || sb.S_blocks_count <= 0 {
+		return fmt.Errorf("metadatos inválidos en SB '%s'", cmd.ID)
+	}
+
+	// VERIFICAR QUE SEA EXT3
+	if sb.S_filesystem_type != 3 {
+		return fmt.Errorf("error: recovery solo aplica a EXT3 (tipo detectado: %d)", sb.S_filesystem_type)
+	}
+	fmt.Println("Sistema de archivos EXT3 confirmado.")
+
+	// Leer journal solo para ver si existe y es legible mínimamente
+	journalInodeIndex := int32(2)
+	journalInode := &structures.Inode{}
+	journalInodeOffset := int64(sb.S_inode_start + journalInodeIndex*sb.S_inode_size)
+	if err := journalInode.Deserialize(diskPath, journalInodeOffset); err != nil {
+		fmt.Printf("Advertencia: No se pudo leer inodo journal %d: %v\n", journalInodeIndex, err)
+		return fmt.Errorf("error crítico: no se pudo leer el inodo del journal (%d): %w", journalInodeIndex, err)
+	} else if journalInode.I_type[0] != '1' {
+		fmt.Printf("Advertencia: Inodo journal %d no es tipo archivo.\n", journalInodeIndex)
+	} else {
+		fmt.Printf("Inodo del journal %d encontrado y es tipo archivo.\n", journalInodeIndex)
+	}
+
+	// Marcar Recursos INICIALES Requeridos
+	requiredInodes := make(map[int32]bool)
+	requiredBlocks := make(map[int32]bool)
+
+	fmt.Println("Marcando inodos/bloques iniciales (0, 1, 2) como requeridos...")
+	initialInodes := []int32{0, 1, 2} // Inodos para /, users.txt, .journal
+
+	for _, idx := range initialInodes {
+		if idx >= sb.S_inodes_count { // Chequeo por si n < 3
+			fmt.Printf("Advertencia: Inodo inicial %d excede S_inodes_count (%d).\n", idx, sb.S_inodes_count)
+			continue
+		}
+		requiredInodes[idx] = true // Marcar inodo como necesario
+
+		// Implementación con Asunción de Bloques Contiguos Iniciales ---
+		fmt.Printf("  Asumiendo bloques iniciales para Inodo %d...\n", idx)
+		switch idx {
+		case 0: // Raíz '/'
+			if 0 < sb.S_blocks_count {
+				requiredBlocks[0] = true
+				fmt.Println("    -> Bloque 0 requerido (para Inodo 0)")
+			}
+		case 1: // users.txt
+			if 1 < sb.S_blocks_count {
+				requiredBlocks[1] = true
+				fmt.Println("    -> Bloque 1 requerido (para Inodo 1)")
+			}
+		case 2: 
+			// Calcular cuántos bloques directos USÓ el journal
+			journalBlocksNeeded := sb.S_inodes_count / 32 
+			if journalBlocksNeeded < 16 {
+				journalBlocksNeeded = 16
+			}
+			if journalBlocksNeeded > 1024 {
+				journalBlocksNeeded = 1024
+			}
+			// Limitar a punteros directos
+			if journalBlocksNeeded > 12 {
+				journalBlocksNeeded = 12
+			}
+			fmt.Printf("    Asumiendo %d bloques para Journal (Inodo 2)...\n", journalBlocksNeeded)
+			startBlockJournal := int32(2) // Asumiendo que empieza en bloque 2
+			for k := int32(0); k < journalBlocksNeeded; k++ {
+				blockIdx := startBlockJournal + k
+				if blockIdx < sb.S_blocks_count {
+					requiredBlocks[blockIdx] = true
+					fmt.Printf("      -> Bloque %d requerido (para Inodo 2)\n", blockIdx)
+				} else {
+					fmt.Printf("      Advertencia: Bloque asumido %d para journal excede S_blocks_count (%d).\n", blockIdx, sb.S_blocks_count)
+					break
+				}
+			}
+		}
+	}
+
+	// Reconciliar Bitmaps (Marcar como '1' los requeridos)
+	fmt.Println("Reconciliando bitmaps con información inicial...")
+	file, errOpen := os.OpenFile(diskPath, os.O_RDWR, 0644)
+	if errOpen != nil {
+		return fmt.Errorf("error abriendo disco para actualizar bitmaps: %w", errOpen)
+	}
+	defer file.Close()
+
+	// Bitmap de Inodos
+	inodeBitmapChanged := false
+	inodeBitmap := make([]byte, sb.S_inodes_count) // Leer el bitmap
+	if _, err := file.ReadAt(inodeBitmap, int64(sb.S_bm_inode_start)); err != nil {
+		return fmt.Errorf("error leyendo bitmap inodos: %w", err)
+	}
+	for inodeIdx := range requiredInodes {
+		if inodeIdx >= 0 && inodeIdx < sb.S_inodes_count {
+			if inodeBitmap[inodeIdx] != '1' { // Si no está marcado como usado
+				fmt.Printf("  Corrigiendo bitmap inodo: índice %d marcado como '1'\n", inodeIdx)
+				inodeBitmap[inodeIdx] = '1'
+				inodeBitmapChanged = true
+			}
+		}
+	}
+	if inodeBitmapChanged { // Reescribir solo si hubo cambios
+		fmt.Println("  Escribiendo bitmap de inodos actualizado...")
+		if _, err := file.WriteAt(inodeBitmap, int64(sb.S_bm_inode_start)); err != nil {
+			return fmt.Errorf("error escribiendo bitmap inodos: %w", err)
+		}
+	} else {
+		fmt.Println("  Bitmap de inodos ya consistente con estado inicial.")
+	}
+
+	// Bitmap de Bloques
+	blockBitmapChanged := false
+	blockBitmap := make([]byte, sb.S_blocks_count) // Leer bitmap bloques
+	if _, err := file.ReadAt(blockBitmap, int64(sb.S_bm_block_start)); err != nil {
+		return fmt.Errorf("error leyendo bitmap bloques: %w", err)
+	}
+	for blockIdx := range requiredBlocks {
+		if blockIdx >= 0 && blockIdx < sb.S_blocks_count {
+			if blockBitmap[blockIdx] != '1' { // Si no está marcado como usado
+				fmt.Printf("  Corrigiendo bitmap bloque: índice %d marcado como '1'\n", blockIdx)
+				blockBitmap[blockIdx] = '1'
+				blockBitmapChanged = true
+			}
+		}
+	}
+	if blockBitmapChanged { // Reescribir solo si hubo cambios
+		fmt.Println("  Escribiendo bitmap de bloques actualizado...")
+		if _, err := file.WriteAt(blockBitmap, int64(sb.S_bm_block_start)); err != nil {
+			return fmt.Errorf("error escribiendo bitmap bloques: %w", err)
+		}
+	} else {
+		fmt.Println("  Bitmap de bloques ya consistente con estado inicial.")
+	}
+
+	// Recalcular Contadores Libres en SB
+	fmt.Println("Recalculando contadores libres...")
+	freeInodes := int32(0)
+	for _, state := range inodeBitmap {
+		if state == '0' {
+			freeInodes++
+		}
+	}
+	freeBlocks := int32(0)
+	for _, state := range blockBitmap {
+		if state == '0' {
+			freeBlocks++
+		}
+	}
+
+	fmt.Printf("  Recuento final: Inodos Libres=%d, Bloques Libres=%d\n", freeInodes, freeBlocks)
+	sb.S_free_inodes_count = freeInodes
+	sb.S_free_blocks_count = freeBlocks
+
+	sb.S_first_ino = 3                       // Asumiendo que 0, 1, 2 están usados
+	lastJournalBlock := int32(2) + int32(12) // Estimación máxima de bloque usado por journal directo
+	if sb.S_inodes_count/32 > 12 {
+		lastJournalBlock = 2 + 12 - 1
+	} else {
+		lastJournalBlock = 2 + sb.S_inodes_count/32 - 1
+	} 
+	if lastJournalBlock < 2 {
+		lastJournalBlock = 2
+	} 
+	sb.S_first_blo = lastJournalBlock + 1 // El siguiente al último bloque del journal (asumiendo contiguo)
+
+	// Actualizar Tiempo y Serializar Superbloque
+	sb.S_mtime = float32(time.Now().Unix()) // Hora de la recuperación
+	fmt.Println("Serializando SuperBloque recuperado...")
+	err = sb.Serialize(diskPath, int64(partition.Part_start))
+	if err != nil {
+		return fmt.Errorf("error al serializar superbloque recuperado: %w", err)
+	}
+
+	fmt.Println("RECOVERY (simple) completado.")
+	return nil
+}
+```
+
+#### LOSS
+Esta comando permite formatear el disco para simular un fallo en este, Limpia los siguiente bloques:
+- Bloque de bitmap de inodos
+- Bloque de bitmap de bloques
+- Área de Inodos
+- Área de Bloques
+Tiene como parámetro el id del disco a formatear.
+```go
+func commandLoss(cmd *LOSS) error {
+	fmt.Printf("Iniciando simulación de pérdida para partición ID: %s\n", cmd.ID)
+
+	// Obtener Superbloque, Partición y Path del Disco
+	sb, partition, diskPath, err := stores.GetMountedPartitionSuperblock(cmd.ID)
+	if err != nil { return fmt.Errorf("error obteniendo partición montada '%s': %w", cmd.ID, err) }
+
+	// Validar datos del Superbloque
+	if sb.S_magic != 0xEF53 { return fmt.Errorf("magia inválida (0x%X) en superbloque de partición '%s'", sb.S_magic, cmd.ID) }
+	if sb.S_inode_size <= 0 || sb.S_block_size <= 0 || sb.S_inodes_count <= 0 || sb.S_blocks_count <= 0 {
+		return fmt.Errorf("metadatos de tamaño/conteo inválidos en superbloque de partición '%s'", cmd.ID)
+	}
+	fmt.Println("Superbloque leído:")
+	sb.Print() // Mostrar info antes de borrar
+
+	// Calcular Offsets y Tamaños de las áreas a borrar
+	bmInodeOffset := int64(sb.S_bm_inode_start)
+	bmInodeSize := int64(sb.S_inodes_count) // 1 byte por inodo en bitmap
+
+	bmBlockOffset := int64(sb.S_bm_block_start)
+	bmBlockSize := int64(sb.S_blocks_count) // 1 byte por bloque en bitmap
+
+	inodeTableOffset := int64(sb.S_inode_start)
+	inodeTableSize := int64(sb.S_inodes_count) * int64(sb.S_inode_size)
+
+	blocksAreaOffset := int64(sb.S_block_start)
+	blocksAreaSize := int64(sb.S_blocks_count) * int64(sb.S_block_size)
+
+	// Validación extra: Asegurar que las áreas estén dentro de la partición física
+	partitionStart := int64(partition.Part_start)
+	partitionEnd := partitionStart + int64(partition.Part_size)
+
+	if bmInodeOffset < partitionStart || (bmInodeOffset+bmInodeSize) > partitionEnd ||
+		bmBlockOffset < partitionStart || (bmBlockOffset+bmBlockSize) > partitionEnd ||
+		inodeTableOffset < partitionStart || (inodeTableOffset+inodeTableSize) > partitionEnd ||
+		blocksAreaOffset < partitionStart || (blocksAreaOffset+blocksAreaSize) > partitionEnd {
+		fmt.Printf("Particion Start: %d, End: %d\n", partitionStart, partitionEnd)
+		fmt.Printf("BM Inode : %d -> %d (Size: %d)\n", bmInodeOffset, bmInodeOffset+bmInodeSize, bmInodeSize)
+		fmt.Printf("BM Block : %d -> %d (Size: %d)\n", bmBlockOffset, bmBlockOffset+bmBlockSize, bmBlockSize)
+		fmt.Printf("Inode Tbl: %d -> %d (Size: %d)\n", inodeTableOffset, inodeTableOffset+inodeTableSize, inodeTableSize)
+		fmt.Printf("Blocks   : %d -> %d (Size: %d)\n", blocksAreaOffset, blocksAreaOffset+blocksAreaSize, blocksAreaSize)
+		return errors.New("error de consistencia: las áreas del sistema de archivos calculadas exceden los límites de la partición física")
+	}
+
+	// Abrir archivo en modo Escritura
+	fmt.Printf("Abriendo disco '%s' para escritura...\n", diskPath)
+	file, errOpen := os.OpenFile(diskPath, os.O_RDWR, 0644) // Necesitamos RDWR
+	if errOpen != nil { return fmt.Errorf("error al abrir disco '%s' para escritura: %w", diskPath, errOpen) }
+	defer file.Close() // Asegurar cierre
+
+	// Sobrescribir cada área con ceros
+	fmt.Printf("-> Borrando Bitmap de Inodos (Offset: %d, Size: %d)...\n", bmInodeOffset, bmInodeSize)
+	if err := zeroOutSpace(file, bmInodeOffset, bmInodeSize); err != nil {
+		return fmt.Errorf("error borrando bitmap de inodos: %w", err)
+	}
+
+	fmt.Printf("-> Borrando Bitmap de Bloques (Offset: %d, Size: %d)...\n", bmBlockOffset, bmBlockSize)
+	if err := zeroOutSpace(file, bmBlockOffset, bmBlockSize); err != nil {
+		return fmt.Errorf("error borrando bitmap de bloques: %w", err)
+	}
+
+	fmt.Printf("-> Borrando Tabla de Inodos (Offset: %d, Size: %d)...\n", inodeTableOffset, inodeTableSize)
+	if err := zeroOutSpace(file, inodeTableOffset, inodeTableSize); err != nil {
+		return fmt.Errorf("error borrando tabla de inodos: %w", err)
+	}
+
+	fmt.Printf("-> Borrando Área de Bloques (Offset: %d, Size: %d)...\n", blocksAreaOffset, blocksAreaSize)
+	if err := zeroOutSpace(file, blocksAreaOffset, blocksAreaSize); err != nil {
+		return fmt.Errorf("error borrando área de bloques: %w", err)
+	}
+
+	fmt.Println("Simulación de pérdida completada.")
+	return nil
+}
+```
+
+#### JOURNALING
+Este comando permite mostrar la información de todas las transacciones que se realizaron mostrando la ruta, el contenido, la fecha y la hora. Tiene como parámetro el id de la partición que mostrará la información de su journal.
+
+```go
+func commandJournaling(cmd *JOURNALING) (string, error) {
+	fmt.Printf("Intentando leer journal para partición ID: %s\n", cmd.ID)
+
+	// Obtener SB, Partición, Path
+	sb, _, diskPath, err := stores.GetMountedPartitionSuperblock(cmd.ID) // No necesitamos 'partition' aquí
+	if err != nil {
+		return "", fmt.Errorf("error obteniendo partición montada '%s': %w", cmd.ID, err)
+	}
+	if sb.S_magic != 0xEF53 {
+		return "", errors.New("magia de superbloque inválida")
+	}
+	if sb.S_inode_size <= 0 || sb.S_block_size <= 0 {
+		return "", errors.New("tamaño de inodo o bloque inválido")
+	}
+
+	// VERIFICAR QUE SEA EXT3
+	if sb.S_filesystem_type != 3 {
+		return "", fmt.Errorf("error: el comando journaling solo aplica a sistemas EXT3 (tipo detectado: %d)", sb.S_filesystem_type)
+	}
+	fmt.Println("Sistema de archivos EXT3 confirmado.")
+
+	// Encontrar y Leer Inodo del Journal 
+	fmt.Println("Buscando inodo del journal (/.journal, inodo 2)...")
+	journalInodeIndex := int32(2)
+	journalInode := &structures.Inode{}
+	journalInodeOffset := int64(sb.S_inode_start + journalInodeIndex*sb.S_inode_size)
+	if err := journalInode.Deserialize(diskPath, journalInodeOffset); err != nil {
+		return "", fmt.Errorf("error crítico: no se pudo leer el inodo del journal (%d): %w", journalInodeIndex, err)
+	}
+	if journalInode.I_type[0] != '1' {
+		return "", fmt.Errorf("error crítico: el inodo del journal (%d) no es tipo archivo", journalInodeIndex)
+	}
+	fmt.Printf("Inodo del journal encontrado (Tamaño: %d bytes)\n", journalInode.I_size)
+
+	// Si el journal está vacío en disco, retornar string vacío
+	if journalInode.I_size == 0 {
+		fmt.Println("El archivo journal está vacío.")
+		return "", nil
+	}
+
+	// Leer Contenido Completo del Journal
+	fmt.Println("Leyendo contenido del archivo journal...")
+	journalContentStr, errRead := structures.ReadFileContent(sb, diskPath, journalInode)
+	if errRead != nil {
+		return "", fmt.Errorf("error leyendo contenido del archivo journal: %w", errRead)
+	}
+	journalContentBytes := []byte(journalContentStr)
+	fmt.Printf("Contenido del journal leído: %d bytes\n", len(journalContentBytes))
+
+	// Deserializar Entradas del Journal
+	journalEntries := []structures.Journal{}
+	journalEntrySize := int(binary.Size(structures.Journal{}))
+	if journalEntrySize <= 0 {
+		return "", errors.New("tamaño de struct Journal inválido")
+	}
+
+	reader := bytes.NewReader(journalContentBytes)
+	entryCount := 0
+	for reader.Len() >= journalEntrySize {
+		var entry structures.Journal
+		err := binary.Read(reader, binary.LittleEndian, &entry)
+		if err != nil {
+			fmt.Printf("Advertencia: Error deserializando entrada journal #%d: %v. Lectura parcial posible.\n", entryCount+1, err)
+			break
+		}
+		journalEntries = append(journalEntries, entry)
+		entryCount++
+	}
+	fmt.Printf("Deserializadas %d entradas del journal.\n", len(journalEntries))
+
+	if len(journalEntries) == 0 {
+		fmt.Println("No se encontraron entradas válidas en el journal.")
+		return "", nil // Devolver vacío si no hay entradas válidas
+	}
+
+	// Formatear Salida
+	var outputBuilder strings.Builder
+	dateFormat := "02/01/2006 15:04:05" // Formato DD/MM/YYYY HH:MM:SS
+
+	for i, entry := range journalEntries {
+		// Limpiar strings de bytes nulos y espacios extra si es necesario
+		op := strings.TrimRight(string(entry.J_content.I_operation[:]), "\x00 ")
+		path := strings.TrimRight(string(entry.J_content.I_path[:]), "\x00 ")
+		content := strings.TrimRight(string(entry.J_content.I_content[:]), "\x00 ")
+		// Escapar comas y punto y comas dentro de los campos si fuera necesario
+		dateStr := time.Unix(int64(entry.J_content.I_date), 0).Format(dateFormat)
+
+		// Añadir campos separados por coma
+		outputBuilder.WriteString(op)
+		outputBuilder.WriteString(",")
+		outputBuilder.WriteString(path)
+		outputBuilder.WriteString(",")
+		outputBuilder.WriteString(content)
+		outputBuilder.WriteString(",")
+		outputBuilder.WriteString(dateStr)
+
+		// Añadir punto y coma si NO es la última entrada
+		if i < len(journalEntries)-1 {
+			outputBuilder.WriteString(";")
+		}
+	}
+
+	fmt.Println("Journal formateado exitosamente.")
+	return outputBuilder.String(), nil
+}
+```
+
+#### PARTITIONS
+Este comando permite mostrar todos las particion que contiene un disco. Tiene como parámetro la ruta de partición de la cual se mostrarán sus particiones.
+```go
+func commandPartitions(cmd *PARTITIONS) (string, error) {
+	diskPath := cmd.path
+	diskBaseName := filepath.Base(diskPath)
+	fmt.Printf("Buscando particiones para disco: '%s' (%s)\n", diskBaseName, diskPath)
+
+	var mbr structures.MBR
+	err := mbr.Deserialize(diskPath)
+	if err != nil {
+		return "", fmt.Errorf("error leyendo MBR '%s': %w", diskPath, err)
+	}
+
+	var validPartitionStrings []string
+	validPartitionsForSort := []structures.Partition{}
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_size > 0 && p.Part_status[0] != 'N' && p.Part_status[0] != 0 {
+			validPartitionsForSort = append(validPartitionsForSort, p)
+		}
+	}
+	sort.Slice(validPartitionsForSort, func(i, j int) bool {
+		return validPartitionsForSort[i].Part_start < validPartitionsForSort[j].Part_start
+	})
+
+	for _, p := range validPartitionsForSort {
+		partName := strings.TrimRight(string(p.Part_name[:]), "\x00 ")
+		if partName == "" {
+			partName = "[Sin Nombre]"
+		}
+		partType := p.Part_type[0]
+		if partType == 0 {
+			partType = ' '
+		}
+		partSize := p.Part_size
+		partStart := p.Part_start
+		partFit := p.Part_fit[0]
+		if partFit == 0 {
+			partFit = ' '
+		}
+		partStatus := p.Part_status[0]
+
+		mountIdStr := ""
+		if foundId, isMounted := stores.GetMountIDForPartition(diskPath, partName); isMounted {
+			mountIdStr = foundId
+			fmt.Printf("  Partición '%s' está montada con ID: %s\n", partName, mountIdStr)
+		}
+
+		// Formato
+		partitionStr := fmt.Sprintf("%s,%c,%d,%d,%c,%c,%s",
+			partName, partType, partSize, partStart, partFit, partStatus, mountIdStr,
+		)
+		validPartitionStrings = append(validPartitionStrings, partitionStr)
+
+		// Si es extendida, buscar y añadir lógicas
+		if partType == 'E' {
+			errLogic := addLogicalPartitionsInfo(diskPath, p.Part_start, &validPartitionStrings) // Pasamos diskPath
+			if errLogic != nil {
+				fmt.Printf("Advertencia: Error leyendo particiones lógicas de '%s': %v\n", diskPath, errLogic)
+			}
+		}
+	}
+
+	output := strings.Join(validPartitionStrings, ";")
+	return output, nil
+}
+```
+
+#### DISK
+Este comando permite mostrar los discos creados.
+```go
+func commandDisks() (string, error) {
+	fmt.Println("Obteniendo información de los discos registrados...")
+
+	if len(stores.DiskRegistry) == 0 {
+		return "DISKS: No hay discos registrados en el sistema.", nil
+	}
+
+	// Obtener Paths y Ordenarlos 
+	diskPaths := make([]string, 0, len(stores.DiskRegistry))
+	for path := range stores.DiskRegistry {
+		diskPaths = append(diskPaths, path)
+	}
+	sort.Strings(diskPaths) // Ordenar alfabéticamente por path
+
+	// Preparar Salida 
+	var outputBuilder strings.Builder
+	firstDisk := true
+
+	// Iterar sobre Discos Registrados 
+	for _, diskPath := range diskPaths {
+		diskName := stores.DiskRegistry[diskPath] // Obtener nombre base del registro
+		fmt.Printf("Procesando disco: '%s' (%s)\n", diskName, diskPath)
+
+		// Leer MBR del disco
+		var mbr structures.MBR
+		err := mbr.Deserialize(diskPath)
+		if err != nil {
+			fmt.Printf("  Advertencia: No se pudo leer MBR para disco '%s': %v. Saltando disco.\n", diskPath, err)
+			continue 
+		}
+
+		// Extraer información del MBR
+		diskSize := mbr.Mbr_size
+		diskFit := mbr.Mbr_disk_fit[0]
+		if diskFit == 0 {
+			diskFit = ' '
+		} 
+
+		// Encontrar Particiones Montadas para ESTE disco
+		mountedNames := []string{}
+		for mountID, mountedDiskPath := range stores.MountedPartitions {
+			if mountedDiskPath == diskPath {
+				// Encontramos una partición montada de este disco, obtener su nombre
+				part, errPart := mbr.GetPartitionByID(mountID) // Usar el MBR ya leído
+				if errPart == nil && part != nil {
+					partName := strings.TrimRight(string(part.Part_name[:]), "\x00 ")
+					if partName != "" {
+						mountedNames = append(mountedNames, partName)
+					} else {
+						mountedNames = append(mountedNames, fmt.Sprintf("[Sin Nombre, ID:%s]", mountID))
+					}
+				} else {
+					mountedNames = append(mountedNames, fmt.Sprintf("[Error Partición ID:%s]", mountID))
+				}
+			}
+		}
+		mountedStr := "Ninguna"
+		if len(mountedNames) > 0 {
+			mountedStr = strings.Join(mountedNames, "|") // Unir con '|'
+		}
+
+		// Formatear la línea para este disco
+		line := fmt.Sprintf("%s,%s,%d,%c,%s",
+			diskName,
+			diskPath,
+			diskSize,
+			diskFit,
+			mountedStr,
+		)
+
+		// Añadir punto y coma si no es el primer disco
+		if !firstDisk {
+			outputBuilder.WriteString(";")
+		}
+		outputBuilder.WriteString(line)
+		firstDisk = false
+
+	}
+
+	// Devolver el string final
+	finalOutput := outputBuilder.String()
+	if finalOutput == "" {
+		return "DISKS: No se pudo obtener información de ningún disco registrado.", nil
+	}
+	return "DISKS:\n" + finalOutput, nil // Añadir prefijo
+}
+```
+
+#### CONTENT
+Este comando permite mostrar las carpetas y archivo contenido dentro de una ruta específica. Tiene como parámetros el id de la partición que contiene el archivo y la ruta de la que se mostrarán las carpetas y archivos contenidos.
+
+```go
+func commandContent(cmd *CONTENT) ([]string, error) {
+	fmt.Printf("Intentando listar contenido detallado de '%s'\n", cmd.ruta)
+
+	// 1. Auth, Get SB, Get DiskPath... (igual que antes)
+	if !stores.Auth.IsAuthenticated() {
+		return nil, errors.New("content requiere login")
+	}
+	currentUser, userGIDStr, partitionID := stores.Auth.GetCurrentUser()
+	if cmd.id != "" {
+		partitionID = cmd.id
+	} // Usar ID de cmd si se proporciona
+	partitionSuperblock, _, diskPath, err := stores.GetMountedPartitionSuperblock(partitionID)
+	if err != nil {
+		return nil, fmt.Errorf("error obteniendo partición '%s': %w", partitionID, err)
+	}
+	if partitionSuperblock.S_magic != 0xEF53 {
+		return nil, errors.New("magia SB inválida")
+	}
+	if partitionSuperblock.S_inode_size <= 0 || partitionSuperblock.S_block_size <= 0 {
+		return nil, errors.New("tamaño inodo/bloque inválido")
+	}
+
+	// 2. Find Target Dir Inode... (igual que antes)
+	targetInodeIndex, targetInode, errFind := structures.FindInodeByPath(partitionSuperblock, diskPath, cmd.ruta)
+	if errFind != nil {
+		return nil, fmt.Errorf("no se encontró dir '%s': %w", cmd.ruta, errFind)
+	}
+	if targetInode.I_type[0] != '0' {
+		return nil, fmt.Errorf("ruta '%s' no es directorio", cmd.ruta)
+	}
+
+	// 3. Check Read Permission... (igual que antes)
+	if !checkPermissions(currentUser, userGIDStr, 'r', targetInode, partitionSuperblock, diskPath) {
+		return nil, fmt.Errorf("permiso denegado lectura dir '%s'", cmd.ruta)
+	}
+
+	// 4. Leer Contenido, OBTENER TIPO, TAMAÑO, FECHA, PERMISOS
+	fmt.Println("Leyendo entradas detalladas del directorio...")
+	contentListDetailed := []string{} // Lista para guardar strings formateados
+	// TODO: Implementar indirección si es necesario
+	for i := 0; i < 12; i++ { // Solo directos
+		blockPtr := targetInode.I_block[i]
+		if blockPtr == -1 || blockPtr < 0 || blockPtr >= partitionSuperblock.S_blocks_count {
+			continue
+		}
+
+		folderBlock := structures.FolderBlock{}
+		blockOffset := int64(partitionSuperblock.S_block_start + blockPtr*partitionSuperblock.S_block_size)
+		if err := folderBlock.Deserialize(diskPath, blockOffset); err != nil {
+			fmt.Printf("  Adv: Error leyendo bloque %d dir %d: %v\n", blockPtr, targetInodeIndex, err)
+			continue
+		}
+
+		for j := range folderBlock.B_content {
+			entry := folderBlock.B_content[j]
+			if entry.B_inodo != -1 { // Entrada válida
+				entryName := strings.TrimRight(string(entry.B_name[:]), "\x00")
+				if entryName != "." && entryName != ".." { // Omitir . y ..
+
+					// --- OBTENER INFO DEL INODO HIJO ---
+					childInodeIndex := entry.B_inodo
+					childType := byte('?')
+					childSize := int32(-1)         // Tamaño -1 si no se puede leer
+					childPerms := "---"            // Permisos por defecto si no se puede leer
+					childMtimeStr := "Fecha desc." // Fecha por defecto
+
+					if childInodeIndex >= 0 && childInodeIndex < partitionSuperblock.S_inodes_count {
+						childInode := &structures.Inode{}
+						childInodeOffset := int64(partitionSuperblock.S_inode_start + childInodeIndex*partitionSuperblock.S_inode_size)
+						if err := childInode.Deserialize(diskPath, childInodeOffset); err == nil {
+							// Lectura exitosa del inodo hijo
+							childType = childInode.I_type[0]
+							childSize = childInode.I_size
+							childPerms = string(childInode.I_perm[:])
+							// Formatear fecha de modificación
+							mtime := time.Unix(int64(childInode.I_mtime), 0)
+							childMtimeStr = mtime.Format("2006-01-02 15:04") // Formato YYYY-MM-DD HH:MM
+
+						} else {
+							fmt.Printf(" Adv: No leer inodo hijo %d ('%s'): %v\n", childInodeIndex, entryName, err)
+						}
+					} else {
+						fmt.Printf(" Adv: Índice inodo inválido %d para '%s'.\n", childInodeIndex, entryName)
+					}
+					// --- FIN OBTENER INFO ---
+
+					// Formato NUEVO: "nombre,tipo,fecha_modif,tamaño,permisos"
+					formattedEntry := fmt.Sprintf("%s,%c,%s,%d,%s",
+						entryName,
+						childType,
+						childMtimeStr,
+						childSize,
+						childPerms,
+					)
+					contentListDetailed = append(contentListDetailed, formattedEntry)
+				}
+			}
+		}
+	} // Fin for bloques
+
+	fmt.Printf("Contenido detallado encontrado: %v\n", contentListDetailed)
+	return contentListDetailed, nil // Devolver lista de strings formateados
+}
+```
+

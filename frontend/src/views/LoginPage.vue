@@ -120,9 +120,6 @@ export default {
           this.statusMessage = "¡Inicio de sesión exitoso! Redirigiendo...";
           console.log("Login successful:", data.output); // Mostrar mensaje del backend (si lo hay)
 
-          // Guardar estado de login globalmente (si usas Vuex o similar)
-          //store.dispatch('login', { username: this.loginForm.username, partitionId: this.loginForm.idPartition });
-
           setTimeout(() => {
             this.$router.push('/loged'); // Redirigir a la vista de disco después de 1 segundo
           }, 1000); // Espera 1 segundo antes de redirigir
