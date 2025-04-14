@@ -3,6 +3,7 @@ package commands
 import (
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 	"errors"
 	"fmt"
 	"path/filepath" // Para obtener Dir/Base
@@ -12,7 +13,7 @@ import (
 )
 
 type REMOVE struct {
-	path string 
+	path string
 }
 
 func ParseRemove(tokens []string) (string, error) {
@@ -120,7 +121,7 @@ func commandRemove(cmd *REMOVE) error {
 	if currentUser != "root" {
 		ownerPerm := parentInode.I_perm[1] // Asumiendo formato tipo '6' o '7' o 'w'
 		canWriteParent := ownerPerm == 'w' || ownerPerm == 'W' || ownerPerm == '6' || ownerPerm == '7'
-		isOwner := true 
+		isOwner := true
 		if !isOwner || !canWriteParent {
 			return fmt.Errorf("permiso denegado: no tienes permiso de escritura en '%s'", parentPath)
 		}
@@ -146,7 +147,7 @@ func commandRemove(cmd *REMOVE) error {
 		}
 		if blockPtr < 0 || blockPtr >= partitionSuperblock.S_blocks_count {
 			continue
-		} 
+		}
 
 		folderBlock := structures.FolderBlock{}
 		blockOffset := int64(partitionSuperblock.S_block_start + blockPtr*partitionSuperblock.S_block_size)
@@ -202,6 +203,18 @@ func commandRemove(cmd *REMOVE) error {
 		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de remove: %w", err)
 	}
 
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("remove"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path original a borrar
+			I_content:   utils.StringToBytes64(""),       // Contenido vacío
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para remove '%s': %v\n", cmd.path, errJournal)
+		}
+	}
+
 	fmt.Println("REMOVE completado.")
 	return nil
 }
@@ -240,7 +253,7 @@ func recursiveRemove(inodeIndex int32, sb *structures.SuperBlock, diskPath strin
 	fmt.Println("    Permiso concedido.")
 
 	// Procesar según tipo
-	if inode.I_type[0] == '1' { 
+	if inode.I_type[0] == '1' {
 		fmt.Printf("    Inodo %d es un ARCHIVO. Liberando bloques...\n", inodeIndex)
 		err := structures.FreeInodeBlocks(inode, sb, diskPath)
 		if err != nil {

@@ -158,7 +158,6 @@ func commandJournaling(cmd *JOURNALING) (string, error) {
 		path := strings.TrimRight(string(entry.J_content.I_path[:]), "\x00 ")
 		content := strings.TrimRight(string(entry.J_content.I_content[:]), "\x00 ")
 		// Escapar comas y punto y comas dentro de los campos si fuera necesario
-		// op = strings.ReplaceAll(op, ",", "\\,") ... etc. (Omitido por simplicidad)
 		dateStr := time.Unix(int64(entry.J_content.I_date), 0).Format(dateFormat)
 
 		// Añadir campos separados por coma

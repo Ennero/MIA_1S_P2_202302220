@@ -9,6 +9,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 type RMUSR struct {
@@ -139,7 +140,7 @@ func commandRmusr(rmusr *RMUSR) error {
 			fmt.Printf("Usuario '%s' encontrado (UID: %s, Línea: '%s'). Modificando UID a 0.\n", rmusr.user, currentUID, line)
 			fields[0] = "0"                           // Cambiar UID a "0"
 			modifiedLine := strings.Join(fields, ",") // Reconstruir la línea
-			newLines = append(newLines, modifiedLine) // Añadir la LÍNEA MODIFICADA
+			newLines = append(newLines, modifiedLine) // Agregar línea modificada
 			foundUser = true
 		} else {
 			newLines = append(newLines, line)
@@ -194,6 +195,26 @@ func commandRmusr(rmusr *RMUSR) error {
 		// Fallo crítico, el inodo no se actualizó
 		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
 	}
+
+
+
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("rmusr"),       
+			I_path:      utils.StringToBytes32(rmusr.user),      
+			I_content:   utils.StringToBytes64(""), 
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para mkusr '%s': %v\n", rmusr.user, errJournal)
+		}
+	}
+
+
+
+
+
 
 	// Serializar Superbloque 
 	fmt.Println("Serializando SuperBlock después de RMUSR...")

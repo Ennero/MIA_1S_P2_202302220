@@ -3,6 +3,7 @@ package commands
 import (
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -176,6 +177,19 @@ func commandCopy(cmd *COPY) error {
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
 		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de copy: %w", err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		contentStr := cmd.Path + "|" + cmd.Destino 
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("copy"),
+			I_path:      utils.StringToBytes32(cmd.Path),   // Path origen
+			I_content:   utils.StringToBytes64(contentStr), // Podría ser solo el destino cmd.Destino
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para copy '%s' a '%s': %v\n", cmd.Path, cmd.Destino, errJournal)
+		}
 	}
 
 	fmt.Println("COPY completado.")
@@ -366,7 +380,6 @@ func checkPermissions(currentUser string, _ string, requiredPermission byte, tar
 	}
 	fmt.Printf("        Info usuario actual encontrada: UID=%d, GID=%d\n", currentUserUID, currentUserGID)
 
-
 	// Extraer permisos del inodo
 	ownerPerms := targetInode.I_perm[0]
 	groupPerms := targetInode.I_perm[1]
@@ -375,13 +388,15 @@ func checkPermissions(currentUser string, _ string, requiredPermission byte, tar
 	// Función helper interna para chequear permiso
 	check := func(permBits byte, req byte) bool {
 		switch req {
-		case 'r': return permBits == 'r' || permBits == '4' || permBits == '5' || permBits == '6' || permBits == '7'
-		case 'w': return permBits == 'w' || permBits == '2' || permBits == '3' || permBits == '6' || permBits == '7'
-		case 'x': return permBits == 'x' || permBits == '1' || permBits == '3' || permBits == '5' || permBits == '7'
+		case 'r':
+			return permBits == 'r' || permBits == '4' || permBits == '5' || permBits == '6' || permBits == '7'
+		case 'w':
+			return permBits == 'w' || permBits == '2' || permBits == '3' || permBits == '6' || permBits == '7'
+		case 'x':
+			return permBits == 'x' || permBits == '1' || permBits == '3' || permBits == '5' || permBits == '7'
 		}
 		return false
 	}
-
 
 	// Verificar permisos en orden: Dueño -> Grupo -> Otros
 	hasPerm := false
@@ -391,26 +406,35 @@ func checkPermissions(currentUser string, _ string, requiredPermission byte, tar
 	if isOwner {
 		fmt.Println("        Usuario es dueño.")
 		hasPerm = check(ownerPerms, requiredPermission)
-		if hasPerm { fmt.Println("        Permiso de dueño concedido."); return true }
+		if hasPerm {
+			fmt.Println("        Permiso de dueño concedido.")
+			return true
+		}
 		// Si es dueño pero no tiene el permiso, se deniega (
 		fmt.Println("        Permiso de dueño DENEGADO.")
 		return false
 	}
 
-	// Chequear Grupo 
-	isInGroup := (targetInode.I_gid == currentUserGID) 
+	// Chequear Grupo
+	isInGroup := (targetInode.I_gid == currentUserGID)
 	if isInGroup {
 		fmt.Println("        Usuario pertenece al grupo.")
 		hasPerm = check(groupPerms, requiredPermission)
-		if hasPerm { fmt.Println("        Permiso de grupo concedido."); return true }
+		if hasPerm {
+			fmt.Println("        Permiso de grupo concedido.")
+			return true
+		}
 		// Si pertenece al grupo pero no tiene permiso, se miran 'otros'
 		fmt.Println("        Permiso de grupo DENEGADO.")
 	}
 
-	// Chequear Otros 
+	// Chequear Otros
 	fmt.Println("        Verificando permisos de 'otros'.")
 	hasPerm = check(otherPerms, requiredPermission)
-	if hasPerm { fmt.Println("        Permiso de 'otros' concedido."); return true }
+	if hasPerm {
+		fmt.Println("        Permiso de 'otros' concedido.")
+		return true
+	}
 
 	// Si no se concedió en ninguna etapa
 	fmt.Println("        Permiso denegado final.")

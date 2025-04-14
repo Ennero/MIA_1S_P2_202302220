@@ -10,6 +10,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 type Edit struct {
@@ -17,7 +18,7 @@ type Edit struct {
 	contenido string
 }
 
-func ParseEdit(tokens []string) (string, error) { 
+func ParseEdit(tokens []string) (string, error) {
 	cmd := &Edit{}
 	processedKeys := make(map[string]bool)
 
@@ -81,9 +82,9 @@ func ParseEdit(tokens []string) (string, error) {
 			}
 			cmd.path = value
 		case "-contenido":
-			cmd.contenido = value 
+			cmd.contenido = value
 		}
-	} 
+	}
 
 	// Verificar obligatorios
 	if !processedKeys["-path"] {
@@ -101,9 +102,9 @@ func ParseEdit(tokens []string) (string, error) {
 	}
 
 	// Llamar a la lógica del comando
-	err := commandEdit(cmd) 
+	err := commandEdit(cmd)
 	if err != nil {
-		return "", err 
+		return "", err
 	}
 
 	return fmt.Sprintf("EDIT: Archivo '%s' modificado correctamente.", cmd.path), nil
@@ -203,7 +204,7 @@ func commandEdit(cmd *Edit) error {
 	targetInode.I_block = newAllocatedBlockIndices // Nuevos punteros a bloques
 	currentTime := float32(time.Now().Unix())
 	targetInode.I_mtime = currentTime // Actualizar tiempo de modificación
-	targetInode.I_atime = currentTime // Actualizar tiempo de acceso
+	targetInode.I_atime = currentTime
 
 	// Serializar Inodo Actualizado
 	inodeOffset := int64(partitionSuperblock.S_inode_start + targetInodeIndex*partitionSuperblock.S_inode_size)
@@ -213,11 +214,23 @@ func commandEdit(cmd *Edit) error {
 		return fmt.Errorf("error serializando inodo '%s' actualizado: %w", cmd.path, err)
 	}
 
-	// Serializar Superbloque 
+	// Serializar Superbloque
 	fmt.Println("Serializando SuperBlock después de EDIT...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
 		return fmt.Errorf("ADVERTENCIA: error al serializar superbloque después de edit: %w", err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("edit"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path del archivo editado
+			I_content:   utils.StringToBytes64(""),       // Contenido no se loguea fácilmente
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para edit '%s': %v\n", cmd.path, errJournal)
+		}
 	}
 
 	fmt.Println("EDIT completado exitosamente.")

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	utils "backend/utils"
 	stores "backend/stores"
 	structures "backend/structures"
 )
@@ -56,7 +57,7 @@ func ParseMkgrp(tokens []string) (string, error) {
 
 // commandMkgrp contiene la lógica principal para crear el grupo
 func commandMkgrp(mkgrp *MKGRP) error {
-	// 1. Verificar Autenticación y Permisos (Root)
+	// Verificar Autenticación y Permisos (Root)
 	if !stores.Auth.IsAuthenticated() {
 		return errors.New("comando mkgrp requiere inicio de sesión")
 	}
@@ -65,7 +66,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return fmt.Errorf("permiso denegado: solo el usuario 'root' puede ejecutar mkgrp (usuario actual: %s)", currentUser)
 	}
 
-	// 2. Obtener Partición y Superbloque
+	// Obtener Partición y Superbloque
 	partitionSuperblock, mountedPartition, partitionPath, err := stores.GetMountedPartitionSuperblock(partitionID)
 	if err != nil {
 		return fmt.Errorf("error al obtener la partición montada '%s': %w", partitionID, err)
@@ -74,7 +75,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return errors.New("tamaño de inodo o bloque inválido en superbloque")
 	}
 
-	// 3. Encontrar y Leer Inodo/Contenido de /users.txt
+	// Encontrar y Leer Inodo/Contenido de /users.txt
 	fmt.Println("Buscando inodo para /users.txt...")
 	usersInodeIndex, usersInode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, "/users.txt")
 	if errFind != nil {
@@ -87,8 +88,8 @@ func commandMkgrp(mkgrp *MKGRP) error {
 	fmt.Println("Leyendo contenido actual de /users.txt...")
 	oldContent, errRead := structures.ReadFileContent(partitionSuperblock, partitionPath, usersInode)
 	if errRead != nil {
+
 		// Si ReadFileContent retorna "" para archivo vacío, esto está bien.
-		// Si retorna error, lo manejamos.
 		if oldContent != "" { // Solo retornar error si no pudimos leer nada y hubo error
 			return fmt.Errorf("error leyendo el contenido de /users.txt: %w", errRead)
 		}
@@ -100,10 +101,10 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		oldContent += "\n"
 	}
 
-	// 4. Parsear Contenido, Validar Grupo Existente y Obtener Nuevo GID
+	// Parsear Contenido, Validar Grupo Existente y Obtener Nuevo GID
 	fmt.Println("Validando nombre de grupo y buscando GID disponible...")
 	lines := strings.Split(oldContent, "\n")
-	highestGID := int32(0) // Asumimos que GID 0 no se usa, root es 1
+	highestGID := int32(0)
 
 	for _, line := range lines {
 		if len(strings.TrimSpace(line)) == 0 {
@@ -149,7 +150,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 	if errFree != nil {
 		// Es importante loguear esto pero intentamos continuar si es posible
 		fmt.Printf("Error al liberar bloques antiguos de users.txt: %v. Puede haber bloques perdidos.\n", errFree)
-		// return fmt.Errorf("error liberando bloques antiguos: %w", errFree) // Opcional: Fallar aquí
+		return fmt.Errorf("error liberando bloques antiguos: %w", errFree) 
 	} else {
 		fmt.Println("Bloques antiguos liberados.")
 	}
@@ -175,12 +176,24 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
 	}
 
-	// Serializar Superbloque
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("mkgrp"),    
+			I_path:      utils.StringToBytes32(mkgrp.name), 
+			I_content:   utils.StringToBytes64(""),         
+		}
+		// Llamar a la función auxiliar para añadir al journal
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para mkgrp '%s': %v\n", mkgrp.name, errJournal)
+		}
+	}
+
 	fmt.Println("Serializando SuperBlock después de MKGRP...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
 		return fmt.Errorf("error al serializar el superbloque después de mkgrp: %w", err)
 	}
 
-	return nil // Éxito
+	return nil 
 }

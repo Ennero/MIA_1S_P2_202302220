@@ -9,6 +9,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 type CHOWN struct {
@@ -161,11 +162,28 @@ func commandChown(cmd *CHOWN) error {
 	errChown := recursiveChown(targetInodeIndex, newOwnerUID, partitionSuperblock, partitionPath, currentUser, currentUserUID, cmd.recursive)
 	if errChown != nil { return fmt.Errorf("error durante cambio de propietario: %w", errChown) }
 
+
+
+	if partitionSuperblock.S_filesystem_type == 3 { // Solo si la operación principal y recursión
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("chown"),
+			I_path:      utils.StringToBytes32(cmd.path),         // Path afectado
+			I_content:   utils.StringToBytes64(cmd.usuario),      // Nuevo usuario como contenido
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para chown '%s': %v\n", cmd.path, errJournal)
+		}
+	}
+
+
+
+
+
 	fmt.Println("CHOWN completado exitosamente.")
 	return nil
 }
 
-// Cambia el propietario (UID) de un inodo y recursivamente si es directorio y applyRecursively=true.
 func recursiveChown(
 	inodeIndex int32,
 	newOwnerUID int32, // UID numérico del NUEVO dueño
@@ -210,7 +228,7 @@ func recursiveChown(
 	if inode.I_uid != newOwnerUID {
 		fmt.Printf("    Cambiando I_uid de %d a %d\n", inode.I_uid, newOwnerUID)
 		inode.I_uid = newOwnerUID
-		inode.I_ctime = float32(time.Now().Unix()) // Actualizar ctime (cambio de metadato)
+		inode.I_ctime = float32(time.Now().Unix()) // Actualizar ctime 
 		ownerChanged = true
 	} else {
 		fmt.Println("    El inodo ya pertenece al nuevo dueño.")
@@ -226,7 +244,7 @@ func recursiveChown(
 		fmt.Println("    Inodo actualizado con nuevo dueño.")
 	}
 
-	// 5. Recurrir si es Directorio y aplica
+	// Recurrir si es Directorio y aplica
 	if inode.I_type[0] == '0' && applyRecursively {
 		fmt.Printf("    Inodo %d es DIRECTORIO, procesando contenido recursivamente...\n", inodeIndex)
 		for i := 0; i < 12; i++ { // Solo directos

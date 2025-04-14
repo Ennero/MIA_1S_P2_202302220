@@ -10,6 +10,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 // Move struct (como la tenías)
@@ -93,7 +94,7 @@ func ParseMove(tokens []string) (string, error) {
 			}
 			cmd.destino = value
 		}
-	} 
+	}
 
 	// Verificar obligatorios
 	if !processedKeys["-path"] {
@@ -112,14 +113,13 @@ func ParseMove(tokens []string) (string, error) {
 		return "", fmt.Errorf("error: el destino '%s' no puede estar dentro del origen '%s'", cmd.destino, cmd.path)
 	}
 
-	err := commandMove(cmd) 
+	err := commandMove(cmd)
 	if err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("MOVE: '%s' movido a '%s' correctamente.", cmd.path, cmd.destino), nil
 }
-
 
 // commandMove: Lógica para mover archivo/carpeta
 func commandMove(cmd *Move) error {
@@ -179,7 +179,7 @@ func commandMove(cmd *Move) error {
 	}
 	fmt.Printf("Padre origen encontrado: %d\n", sourceParentInodeIndex)
 
-	// Evitar mover un directorio a sí mismo (ya cubierto por la validación de path vs destino?)
+	// Evitar mover un directorio a sí mismo
 	if sourceInodeIndex == destDirInodeIndex {
 		return errors.New("error: no se puede mover un directorio dentro de sí mismo (origen y destino apuntan al mismo inodo de directorio)")
 	}
@@ -187,7 +187,7 @@ func commandMove(cmd *Move) error {
 	// Verificar Permisos
 	fmt.Printf("Verificando permisos para usuario '%s'...\n", currentUser)
 	if currentUser != "root" {
-		// Permiso escritura en Origen 
+		// Permiso escritura en Origen
 		if !checkPermissions(currentUser, userGIDStr, 'w', sourceInode, partitionSuperblock, partitionPath) {
 			return fmt.Errorf("permiso denegado: escritura sobre origen '%s'", cmd.path)
 		}
@@ -211,9 +211,8 @@ func commandMove(cmd *Move) error {
 	}
 	fmt.Printf("Nombre '%s' disponible en destino.\n", sourceBaseName)
 
-	//  INICIO DE OPERACIONES DE MOVIMIENTO
-
-	// Añadir Entrada en Directorio Destino 
+	//  INICIO DE MOVIMIENTO ------------------------------------
+	// Añadir Entrada en Directorio Destino
 	fmt.Printf("Añadiendo entrada '%s' -> %d en directorio destino %d...\n", sourceBaseName, sourceInodeIndex, destDirInodeIndex)
 	errAdd := addEntryToParent(destDirInodeIndex, sourceBaseName, sourceInodeIndex, partitionSuperblock, partitionPath)
 	if errAdd != nil {
@@ -277,6 +276,7 @@ func commandMove(cmd *Move) error {
 				// Verificar que la entrada '..' esté donde se espera (índice 1)
 				if strings.TrimRight(string(folderBlock.B_content[1].B_name[:]), "\x00") == ".." {
 					folderBlock.B_content[1].B_inodo = destDirInodeIndex // Apuntar al nuevo padre
+
 					// Reescribir el bloque modificado
 					if err := folderBlock.Serialize(partitionPath, blockOffset); err != nil {
 						fmt.Printf("Advertencia: Error guardando bloque %d con '..' actualizado: %v\n", firstBlockPtr, err)
@@ -298,7 +298,7 @@ func commandMove(cmd *Move) error {
 	fmt.Println("Actualizando timestamps...")
 	now := float32(time.Now().Unix())
 
-	// Padre Origen 
+	// Padre Origen
 	sourceParentInode.I_mtime = now
 	sourceParentInode.I_atime = now
 	sourceParentInodeOffset := int64(partitionSuperblock.S_inode_start + sourceParentInodeIndex*partitionSuperblock.S_inode_size)
@@ -306,7 +306,7 @@ func commandMove(cmd *Move) error {
 		fmt.Printf("Advertencia: Error guardando inodo padre origen %d: %v\n", sourceParentInodeIndex, err)
 	}
 
-	// Padre Destino 
+	// Padre Destino
 	destDirInode.I_mtime = now
 	destDirInode.I_atime = now
 	destDirInodeOffset := int64(partitionSuperblock.S_inode_start + destDirInodeIndex*partitionSuperblock.S_inode_size)
@@ -320,6 +320,19 @@ func commandMove(cmd *Move) error {
 	sourceInodeOffset := int64(partitionSuperblock.S_inode_start + sourceInodeIndex*partitionSuperblock.S_inode_size)
 	if err := sourceInode.Serialize(partitionPath, sourceInodeOffset); err != nil {
 		return fmt.Errorf("error crítico al guardar inodo objetivo %d: %w", sourceInodeIndex, err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		contentStr := cmd.path + "|" + cmd.destino // Ejemplo: /a/b.txt|/c/d
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("move"),
+			I_path:      utils.StringToBytes32(cmd.path),   // Path original
+			I_content:   utils.StringToBytes64(contentStr), // Podría ser solo el destino cmd.destino
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para move '%s' a '%s': %v\n", cmd.path, cmd.destino, errJournal)
+		}
 	}
 
 	fmt.Println("MOVE completado exitosamente.")

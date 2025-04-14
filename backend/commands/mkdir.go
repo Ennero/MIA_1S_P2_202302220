@@ -14,7 +14,7 @@ import (
 // MKDIR estructura que representa el comando mkdir con sus parámetros
 type MKDIR struct {
 	path string // Path del directorio
-	p    bool   // Opción -p (crea directorios padres si no existen)
+	p    bool   // Opción -p
 }
 
 func ParseMkdir(tokens []string) (string, error) {
@@ -58,7 +58,6 @@ func ParseMkdir(tokens []string) (string, error) {
 
 	return fmt.Sprintf("MKDIR: Directorio %s creado correctamente.", cmd.path), nil
 }
-
 
 func commandMkdir(mkdir *MKDIR) error {
 	//Obtengo la parción Motada (como siempre)
@@ -111,11 +110,6 @@ func commandMkdir(mkdir *MKDIR) error {
 			_, inode, errFind := structures.FindInodeByPath(partitionSuperblock, partitionPath, currentPathToCheck)
 
 			if errFind != nil {
-				// Si hay un error, se asueme que el directorio no existe
-
-				// TODO: Sería ideal verificar si el error es específicamente "no encontrado"
-				// pero como no lo haré así se queda xd
-
 				fmt.Printf("Directorio '%s' no encontrado. Intentando crear...\n", currentPathToCheck)
 				parentDirs, destDir := utils.GetParentDirectories(currentPathToCheck)
 				errCreate := partitionSuperblock.CreateFolder(partitionPath, parentDirs, destDir)
@@ -152,22 +146,32 @@ func commandMkdir(mkdir *MKDIR) error {
 		parentDirs, destDir := utils.GetParentDirectories(cleanPath)
 		errCreate := partitionSuperblock.CreateFolder(partitionPath, parentDirs, destDir)
 		if errCreate != nil {
-			// Aquí podría haber un error si el directorio final ya existe.
-			// CreateFolder debería idealmente retornar un error específico para "ya existe".
 			return fmt.Errorf("error al crear directorio final '%s': %w", mkdir.path, errCreate)
 		}
+
+		if partitionSuperblock.S_filesystem_type == 3 {
+			// Para -p, solo logueamos la creación del path COMPLETO solicitado
+			journalEntryData := structures.Information{
+				I_operation: utils.StringToBytes10("mkdir"),
+				I_path:      utils.StringToBytes32(cleanPath), // Path completo creado
+				I_content:   utils.StringToBytes64(""),        // Contenido vacío para mkdir
+			}
+			errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+			if errJournal != nil {
+				fmt.Printf("Advertencia: Falla al escribir en journal para mkdir '%s': %v\n", cleanPath, errJournal)
+			}
+		}
 	}
+
 	//Serializo el superbloque después de crear el directorio
 	fmt.Println("\nSerializando SuperBlock después de MKDIR...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
-		// Nota: Si la serialización falla, los cambios podrían perderse al desmontar/reiniciar.
 		return fmt.Errorf("error al serializar el superbloque después de mkdir: %w", err)
 	}
 
 	partitionSuperblock.PrintInodes(partitionPath)
 	partitionSuperblock.PrintBlocks(partitionPath)
 
-	return nil 
+	return nil
 }
-

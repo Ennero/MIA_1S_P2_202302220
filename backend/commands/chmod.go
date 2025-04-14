@@ -9,6 +9,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 type CHMOD struct {
@@ -146,7 +147,7 @@ func commandChmod(cmd *CHMOD) error {
 	}
 	fmt.Printf("Inodo objetivo encontrado: %d\n", targetInodeIndex)
 
-	// Verificar Permiso para CAMBIAR Permisos (Dueño o Root)
+	// Verificar Permiso para CAMBIAR Permisos 
 	fmt.Println("Verificando permiso para cambiar permisos...")
 	canChangePerms := false
 	if currentUser == "root" {
@@ -175,7 +176,17 @@ func commandChmod(cmd *CHMOD) error {
 		return fmt.Errorf("error durante el cambio de permisos: %w", errChmod)
 	}
 
-	// Serializar Superbloque (No necesario para chmod)
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("chmod"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path afectado
+			I_content:   utils.StringToBytes64(cmd.ugo),  // Permisos UGO como contenido
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para chmod '%s': %v\n", cmd.path, errJournal)
+		}
+	}
 
 	fmt.Println("CHMOD completado exitosamente.")
 	return nil

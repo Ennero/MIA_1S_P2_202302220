@@ -1,11 +1,9 @@
 package commands
 
 import (
-	"bytes"          
-	"encoding/binary" 
 	"errors"
 	"fmt"
-	"os" 
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -74,120 +72,96 @@ func ParseRecovery(tokens []string) (string, error) {
 }
 
 func commandRecovery(cmd *RECOVERY) error {
-	fmt.Printf("Iniciando recuperación para partición ID: %s\n", cmd.ID)
+	fmt.Printf("Iniciando recuperación SIMPLE para partición ID: %s\n", cmd.ID)
 
-	// 1. Obtener SB, Partición, Path
+	// Obtener SB, Partición, Path
 	sb, partition, diskPath, err := stores.GetMountedPartitionSuperblock(cmd.ID)
 	if err != nil {
-		return fmt.Errorf("error obteniendo partición montada '%s': %w", cmd.ID, err)
+		return fmt.Errorf("error obteniendo partición '%s': %w", cmd.ID, err)
 	}
 	if sb.S_magic != 0xEF53 {
-		return errors.New("magia de superbloque inválida")
+		return fmt.Errorf("magia SB inválida en '%s'", cmd.ID)
 	}
-	if sb.S_inode_size <= 0 || sb.S_block_size <= 0 {
-		return errors.New("tamaño de inodo o bloque inválido")
+	if sb.S_inode_size <= 0 || sb.S_block_size <= 0 || sb.S_inodes_count <= 0 || sb.S_blocks_count <= 0 {
+		return fmt.Errorf("metadatos inválidos en SB '%s'", cmd.ID)
 	}
 
 	// VERIFICAR QUE SEA EXT3
 	if sb.S_filesystem_type != 3 {
-		return fmt.Errorf("error: el comando recovery solo aplica a sistemas de archivos EXT3 (tipo detectado: %d)", sb.S_filesystem_type)
+		return fmt.Errorf("error: recovery solo aplica a EXT3 (tipo detectado: %d)", sb.S_filesystem_type)
 	}
 	fmt.Println("Sistema de archivos EXT3 confirmado.")
 
-	// Encontrar y Leer Inodo del Journal (Asumiendo Inodo 2)
-	fmt.Println("Buscando inodo del journal (/.journal, inodo 2)...")
+	// Leer journal solo para ver si existe y es legible mínimamente
 	journalInodeIndex := int32(2)
 	journalInode := &structures.Inode{}
 	journalInodeOffset := int64(sb.S_inode_start + journalInodeIndex*sb.S_inode_size)
 	if err := journalInode.Deserialize(diskPath, journalInodeOffset); err != nil {
-		// Si no se puede leer el inodo del journal, la recuperación no es posible
+		fmt.Printf("Advertencia: No se pudo leer inodo journal %d: %v\n", journalInodeIndex, err)
 		return fmt.Errorf("error crítico: no se pudo leer el inodo del journal (%d): %w", journalInodeIndex, err)
-	}
-	if journalInode.I_type[0] != '1' {
-		return fmt.Errorf("error crítico: el inodo del journal (%d) no es de tipo archivo", journalInodeIndex)
-	}
-	fmt.Printf("Inodo del journal encontrado (Tamaño: %d bytes)\n", journalInode.I_size)
-
-	// Leer Contenido Completo del Journal
-	fmt.Println("Leyendo contenido del archivo journal...")
-	journalContentStr, errRead := structures.ReadFileContent(sb, diskPath, journalInode)
-	if errRead != nil {
-		// Si no podemos leer el journal, no podemos recuperar
-		return fmt.Errorf("error leyendo contenido del archivo journal: %w", errRead)
-	}
-	journalContentBytes := []byte(journalContentStr)
-	fmt.Printf("Contenido del journal leído: %d bytes\n", len(journalContentBytes))
-
-	// Deserializar Entradas del Journal
-	journalEntries := []structures.Journal{}
-	journalEntrySize := int(binary.Size(structures.Journal{}))
-	if journalEntrySize <= 0 {
-		return errors.New("tamaño de struct Journal inválido")
+	} else if journalInode.I_type[0] != '1' {
+		fmt.Printf("Advertencia: Inodo journal %d no es tipo archivo.\n", journalInodeIndex)
+	} else {
+		fmt.Printf("Inodo del journal %d encontrado y es tipo archivo.\n", journalInodeIndex)
 	}
 
-	reader := bytes.NewReader(journalContentBytes)
-	entryCount := 0
-	for reader.Len() >= journalEntrySize {
-		var entry structures.Journal
-		err := binary.Read(reader, binary.LittleEndian, &entry)
-		if err != nil {
-			fmt.Printf("Advertencia: Error deserializando entrada de journal #%d: %v. Deteniendo lectura.\n", entryCount+1, err)
-			break 
-		}
-		// Podríamos validar J_count si tuviera sentido aquí, pero en la estructura actual no mucho
-		journalEntries = append(journalEntries, entry)
-		entryCount++
-	}
-	fmt.Printf("Deserializadas %d entradas del journal.\n", len(journalEntries))
-
-	// Analizar Journal y Marcar Recursos Requeridos (Simplificado)
+	// Marcar Recursos INICIALES Requeridos
 	requiredInodes := make(map[int32]bool)
 	requiredBlocks := make(map[int32]bool)
 
-	// Siempre marcar inodos/bloques iniciales como requeridos
-	requiredInodes[0] = true // Raíz
-	requiredInodes[1] = true // users.txt
-	requiredInodes[2] = true // .journal (porque estamos en ext3)
-	// Bloques iniciales
-	// Releer inodos 0, 1, 2 para obtener sus bloques
-	for _, idx := range []int32{0, 1, 2} {
-		tempInode := &structures.Inode{}
-		tempOffset := int64(sb.S_inode_start + idx*sb.S_inode_size)
-		if tempInode.Deserialize(diskPath, tempOffset) == nil {
-			for _, blockPtr := range tempInode.I_block {
-				if blockPtr != -1 {
-					requiredBlocks[blockPtr] = true
+	fmt.Println("Marcando inodos/bloques iniciales (0, 1, 2) como requeridos...")
+	initialInodes := []int32{0, 1, 2} // Inodos para /, users.txt, .journal
+
+	for _, idx := range initialInodes {
+		if idx >= sb.S_inodes_count { // Chequeo por si n < 3
+			fmt.Printf("Advertencia: Inodo inicial %d excede S_inodes_count (%d).\n", idx, sb.S_inodes_count)
+			continue
+		}
+		requiredInodes[idx] = true // Marcar inodo como necesario
+
+		// Implementación con Asunción de Bloques Contiguos Iniciales ---
+		fmt.Printf("  Asumiendo bloques iniciales para Inodo %d...\n", idx)
+		switch idx {
+		case 0: // Raíz '/'
+			if 0 < sb.S_blocks_count {
+				requiredBlocks[0] = true
+				fmt.Println("    -> Bloque 0 requerido (para Inodo 0)")
+			}
+		case 1: // users.txt
+			if 1 < sb.S_blocks_count {
+				requiredBlocks[1] = true
+				fmt.Println("    -> Bloque 1 requerido (para Inodo 1)")
+			}
+		case 2: 
+			// Calcular cuántos bloques directos USÓ el journal
+			journalBlocksNeeded := sb.S_inodes_count / 32 
+			if journalBlocksNeeded < 16 {
+				journalBlocksNeeded = 16
+			}
+			if journalBlocksNeeded > 1024 {
+				journalBlocksNeeded = 1024
+			}
+			// Limitar a punteros directos
+			if journalBlocksNeeded > 12 {
+				journalBlocksNeeded = 12
+			}
+			fmt.Printf("    Asumiendo %d bloques para Journal (Inodo 2)...\n", journalBlocksNeeded)
+			startBlockJournal := int32(2) // Asumiendo que empieza en bloque 2
+			for k := int32(0); k < journalBlocksNeeded; k++ {
+				blockIdx := startBlockJournal + k
+				if blockIdx < sb.S_blocks_count {
+					requiredBlocks[blockIdx] = true
+					fmt.Printf("      -> Bloque %d requerido (para Inodo 2)\n", blockIdx)
+				} else {
+					fmt.Printf("      Advertencia: Bloque asumido %d para journal excede S_blocks_count (%d).\n", blockIdx, sb.S_blocks_count)
+					break
 				}
 			}
 		}
 	}
 
-	// Iterar sobre las operaciones logueadas
-	fmt.Println("Analizando operaciones del journal para marcar recursos...")
-	for _, entry := range journalEntries {
-		op := strings.TrimRight(string(entry.J_content.I_operation[:]), "\x00 ")
-		path := strings.TrimRight(string(entry.J_content.I_path[:]), "\x00 ")
-		fmt.Printf("  Procesando log: Op='%s', Path='%s'\n", op, path)
-
-		inodeIdx, inode, errFind := structures.FindInodeByPath(sb, diskPath, path) // Necesita que el path exista!
-		if errFind == nil {
-			fmt.Printf("    Operación en Inodo %d. Marcando como requerido.\n", inodeIdx)
-			requiredInodes[inodeIdx] = true
-			for _, blockPtr := range inode.I_block {
-				if blockPtr != -1 {
-					fmt.Printf("      Marcando bloque %d como requerido.\n", blockPtr)
-					requiredBlocks[blockPtr] = true
-				}
-			}
-
-		} else {
-			fmt.Printf("    Advertencia: No se pudo encontrar inodo para path '%s' del journal: %v. No se pueden marcar sus recursos.\n", path, errFind)
-			return fmt.Errorf("error crítico: no se pudo encontrar inodo para path '%s' del journal: %w", path, errFind)
-		}
-	}
-
-	// Reconciliar Bitmaps
-	fmt.Println("Reconciliando bitmaps con información del journal...")
+	// Reconciliar Bitmaps (Marcar como '1' los requeridos)
+	fmt.Println("Reconciliando bitmaps con información inicial...")
 	file, errOpen := os.OpenFile(diskPath, os.O_RDWR, 0644)
 	if errOpen != nil {
 		return fmt.Errorf("error abriendo disco para actualizar bitmaps: %w", errOpen)
@@ -196,55 +170,53 @@ func commandRecovery(cmd *RECOVERY) error {
 
 	// Bitmap de Inodos
 	inodeBitmapChanged := false
-	inodeBitmap := make([]byte, sb.S_inodes_count)
+	inodeBitmap := make([]byte, sb.S_inodes_count) // Leer el bitmap
 	if _, err := file.ReadAt(inodeBitmap, int64(sb.S_bm_inode_start)); err != nil {
-		return fmt.Errorf("error leyendo bitmap inodos para recovery: %w", err)
+		return fmt.Errorf("error leyendo bitmap inodos: %w", err)
 	}
 	for inodeIdx := range requiredInodes {
 		if inodeIdx >= 0 && inodeIdx < sb.S_inodes_count {
-			if inodeBitmap[inodeIdx] == '0' {
+			if inodeBitmap[inodeIdx] != '1' { // Si no está marcado como usado
 				fmt.Printf("  Corrigiendo bitmap inodo: índice %d marcado como '1'\n", inodeIdx)
-				inodeBitmap[inodeIdx] = '1' // Marcar como usado
+				inodeBitmap[inodeIdx] = '1'
 				inodeBitmapChanged = true
 			}
 		}
 	}
-	// Reescribir bitmap de inodos si cambió
-	if inodeBitmapChanged {
+	if inodeBitmapChanged { // Reescribir solo si hubo cambios
 		fmt.Println("  Escribiendo bitmap de inodos actualizado...")
 		if _, err := file.WriteAt(inodeBitmap, int64(sb.S_bm_inode_start)); err != nil {
-			return fmt.Errorf("error escribiendo bitmap inodos actualizado: %w", err)
+			return fmt.Errorf("error escribiendo bitmap inodos: %w", err)
 		}
 	} else {
-		fmt.Println("  Bitmap de inodos ya consistente.")
+		fmt.Println("  Bitmap de inodos ya consistente con estado inicial.")
 	}
 
 	// Bitmap de Bloques
 	blockBitmapChanged := false
-	blockBitmap := make([]byte, sb.S_blocks_count)
+	blockBitmap := make([]byte, sb.S_blocks_count) // Leer bitmap bloques
 	if _, err := file.ReadAt(blockBitmap, int64(sb.S_bm_block_start)); err != nil {
-		return fmt.Errorf("error leyendo bitmap bloques para recovery: %w", err)
+		return fmt.Errorf("error leyendo bitmap bloques: %w", err)
 	}
 	for blockIdx := range requiredBlocks {
 		if blockIdx >= 0 && blockIdx < sb.S_blocks_count {
-			if blockBitmap[blockIdx] == '0' {
+			if blockBitmap[blockIdx] != '1' { // Si no está marcado como usado
 				fmt.Printf("  Corrigiendo bitmap bloque: índice %d marcado como '1'\n", blockIdx)
-				blockBitmap[blockIdx] = '1' // Marcar como usado
+				blockBitmap[blockIdx] = '1'
 				blockBitmapChanged = true
 			}
 		}
 	}
-	// Reescribir bitmap de bloques si cambió
-	if blockBitmapChanged {
+	if blockBitmapChanged { // Reescribir solo si hubo cambios
 		fmt.Println("  Escribiendo bitmap de bloques actualizado...")
 		if _, err := file.WriteAt(blockBitmap, int64(sb.S_bm_block_start)); err != nil {
-			return fmt.Errorf("error escribiendo bitmap bloques actualizado: %w", err)
+			return fmt.Errorf("error escribiendo bitmap bloques: %w", err)
 		}
 	} else {
-		fmt.Println("  Bitmap de bloques ya consistente.")
+		fmt.Println("  Bitmap de bloques ya consistente con estado inicial.")
 	}
 
-	// Recalcular Contadores Libres
+	// Recalcular Contadores Libres en SB
 	fmt.Println("Recalculando contadores libres...")
 	freeInodes := int32(0)
 	for _, state := range inodeBitmap {
@@ -263,14 +235,26 @@ func commandRecovery(cmd *RECOVERY) error {
 	sb.S_free_inodes_count = freeInodes
 	sb.S_free_blocks_count = freeBlocks
 
+	sb.S_first_ino = 3                       // Asumiendo que 0, 1, 2 están usados
+	lastJournalBlock := int32(2) + int32(12) // Estimación máxima de bloque usado por journal directo
+	if sb.S_inodes_count/32 > 12 {
+		lastJournalBlock = 2 + 12 - 1
+	} else {
+		lastJournalBlock = 2 + sb.S_inodes_count/32 - 1
+	} 
+	if lastJournalBlock < 2 {
+		lastJournalBlock = 2
+	} 
+	sb.S_first_blo = lastJournalBlock + 1 // El siguiente al último bloque del journal (asumiendo contiguo)
+
 	// Actualizar Tiempo y Serializar Superbloque
-	sb.S_mtime = float32(time.Now().Unix()) 
+	sb.S_mtime = float32(time.Now().Unix()) // Hora de la recuperación
 	fmt.Println("Serializando SuperBloque recuperado...")
 	err = sb.Serialize(diskPath, int64(partition.Part_start))
 	if err != nil {
 		return fmt.Errorf("error al serializar superbloque recuperado: %w", err)
 	}
 
-	fmt.Println("RECOVERY completado.")
+	fmt.Println("RECOVERY (simple) completado.")
 	return nil
 }

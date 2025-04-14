@@ -2,7 +2,7 @@ package commands
 
 import (
 	"fmt"
-	"os" // Necesario para leer archivo con -cont
+	"os" 
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -277,6 +277,22 @@ func commandMkfile(mkfile *MKFILE) error {
 		return fmt.Errorf("error añadiendo entrada '%s' al directorio padre: %w", fileName, err)
 	}
 
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		// ¿Qué guardar en content? Podría ser el tamaño o los primeros bytes. Usemos tamaño.
+		contentStr := strconv.Itoa(int(fileSize)) // Convertir tamaño a string
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("mkfile"),
+			I_path:      utils.StringToBytes32(cleanPath),  // Path completo del archivo
+			I_content:   utils.StringToBytes64(contentStr), // Guardar tamaño como string
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para mkfile '%s': %v\n", cleanPath, errJournal)
+		}
+	}
+
+
 	// Serializar el contenido en los bloques asignados
 	fmt.Println("\nSerializando SuperBlock después de MKFILE...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
@@ -493,7 +509,6 @@ func addEntryToParent(parentInodeIndex int32, entryName string, entryInodeIndex 
 	//  Si no se encontró slot, asignar NUEVO bloque al padre 
 	fmt.Printf("No se encontró slot libre en bloques existentes del padre %d. Buscando puntero libre para nuevo bloque...\n", parentInodeIndex)
 
-	// --- Función auxiliar interna CORREGIDA ---
 	allocateAndPrepareNewFolderBlock := func() (int32, *structures.FolderBlock, error) {
 		if sb.S_free_blocks_count < 1 {
 			return -1, nil, errors.New("no hay bloques libres para expandir directorio")
@@ -503,7 +518,6 @@ func addEntryToParent(parentInodeIndex int32, entryName string, entryInodeIndex 
 		if err != nil {
 			return -1, nil, fmt.Errorf("error al buscar bloque libre para expandir dir: %w", err)
 		}
-		// FindFreeBlock ya valida el índice devuelto
 
 		// Actualizar bitmap y SB
 		err = sb.UpdateBitmapBlock(partitionPath, newBlockIndex,'1')
@@ -649,7 +663,7 @@ func addEntryToParent(parentInodeIndex int32, entryName string, entryInodeIndex 
 	return fmt.Errorf("directorio padre (inodo %d) lleno: no hay espacio en bloques existentes ni en punteros directos/indirectos simples. Indirección doble/triple no implementada para directorios", parentInodeIndex)
 }
 
-// allocateDataBlocks asigna bloques de datos para un archivo, actualizando el superbloque y el bitmap.1
+// Asigna bloques de datos para un archivo, actualizando el superbloque y el bitmap.1
 func allocateDataBlocks(contentBytes []byte, fileSize int32, sb *structures.SuperBlock, partitionPath string) ([15]int32, error) {
 	allocatedBlockIndices := [15]int32{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
 

@@ -68,8 +68,7 @@ func commandLoss(cmd *LOSS) error {
 	fmt.Println("Superbloque leído:")
 	sb.Print() // Mostrar info antes de borrar
 
-	// 2. Calcular Offsets y Tamaños de las áreas a borrar
-	// Es crucial usar los valores del Superbloque (sb)
+	// Calcular Offsets y Tamaños de las áreas a borrar
 	bmInodeOffset := int64(sb.S_bm_inode_start)
 	bmInodeSize := int64(sb.S_inodes_count) // 1 byte por inodo en bitmap
 

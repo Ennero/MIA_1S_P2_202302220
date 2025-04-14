@@ -1,13 +1,14 @@
 package commands
 
 import (
+	stores "backend/stores"
+	structures "backend/structures"
+	utils "backend/utils"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
-	stores "backend/stores"
-	structures "backend/structures"
 )
 
 type CHGRP struct {
@@ -150,7 +151,6 @@ func commandChgrp(chgrp *CHGRP) error {
 			userLineModified = true
 			fmt.Printf("Línea del usuario '%s' modificada a: %s\n", chgrp.user, modifiedLine)
 		} else {
-			// Conservar la línea original
 			newLines = append(newLines, line)
 		}
 	}
@@ -201,12 +201,25 @@ func commandChgrp(chgrp *CHGRP) error {
 		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
 	}
 
-	// Serializar Superbloque
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("chgrp"),        
+			I_path:      utils.StringToBytes32(chgrp.user),    
+			I_content:   utils.StringToBytes64(chgrp.grp), 
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para mkusr '%s': %v\n", chgrp.user, errJournal)
+		}
+	}
+
+
 	fmt.Println("Serializando SuperBlock después de CHGRP...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
 	if err != nil {
 		return fmt.Errorf("error al serializar el superbloque después de chgrp: %w", err)
 	}
 
-	return nil // Éxito
+	return nil 
 }

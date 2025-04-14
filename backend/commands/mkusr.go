@@ -10,6 +10,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 type MKUSR struct {
@@ -155,9 +156,9 @@ func commandMkusr(mkusr *MKUSR) error {
 		}
 
 		// Verificar si el usuario ya existe
-        if len(fields) == 5 && fields[1] == "U" && strings.EqualFold(fields[3], mkusr.user) { // <-- CORRECTO: Usa índice 3 y verifica longitud 5
-            userExists = true
-        }
+		if len(fields) == 5 && fields[1] == "U" && strings.EqualFold(fields[3], mkusr.user) { // <-- CORRECTO: Usa índice 3 y verifica longitud 5
+			userExists = true
+		}
 
 		// Verificar si el grupo existe y obtener su GID
 		if fields[1] == "G" && strings.EqualFold(fields[2], mkusr.grp) {
@@ -210,6 +211,18 @@ func commandMkusr(mkusr *MKUSR) error {
 	err = usersInode.Serialize(partitionPath, usersInodeOffset)
 	if err != nil {
 		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("mkusr"),
+			I_path:      utils.StringToBytes32(mkusr.user),
+			I_content:   utils.StringToBytes64(mkusr.grp + "," + mkusr.pass),
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para mkusr '%s': %v\n", mkusr.user, errJournal)
+		}
 	}
 
 	// Serializar Superbloque

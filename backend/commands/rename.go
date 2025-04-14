@@ -1,14 +1,15 @@
 package commands
 
 import (
+	stores "backend/stores"
+	structures "backend/structures"
+	utils "backend/utils"
 	"errors"
 	"fmt"
 	"path/filepath" // Para Dir/Base
 	"regexp"
 	"strings"
-	"time" 
-	stores "backend/stores"
-	structures "backend/structures"
+	"time"
 )
 
 type RENAME struct {
@@ -92,7 +93,7 @@ func ParseRename(tokens []string) (string, error) {
 			}
 			cmd.name = value
 		}
-	} 
+	}
 
 	// Verificar obligatorios
 	if !processedKeys["-path"] {
@@ -262,12 +263,25 @@ func commandRename(cmd *RENAME) error {
 		fmt.Printf("Advertencia: Error al guardar inodo padre %d actualizado: %v\n", parentInodeIndex, err)
 	}
 
-	targetInode.I_mtime = now 
-	targetInode.I_ctime = now 
-	targetInode.I_atime = now 
+	targetInode.I_mtime = now
+	targetInode.I_ctime = now
+	targetInode.I_atime = now
 	targetInodeOffset := int64(partitionSuperblock.S_inode_start + targetInodeIndex*partitionSuperblock.S_inode_size)
 	if err := targetInode.Serialize(partitionPath, targetInodeOffset); err != nil {
 		return fmt.Errorf("error crítico al guardar inodo objetivo %d actualizado: %w", targetInodeIndex, err)
+	}
+
+	if partitionSuperblock.S_filesystem_type == 3 {
+		contentStr := cmd.path + "|" + cmd.name // Ejemplo: /a/b.txt|c.txt
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("rename"),
+			I_path:      utils.StringToBytes32(cmd.path), // Path original
+			I_content:   utils.StringToBytes64(contentStr),
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para rename '%s' a '%s': %v\n", cmd.path, cmd.name, errJournal)
+		}
 	}
 
 	fmt.Println("RENAME completado exitosamente.")

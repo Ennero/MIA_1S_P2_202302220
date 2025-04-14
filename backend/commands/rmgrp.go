@@ -9,6 +9,7 @@ import (
 
 	stores "backend/stores"
 	structures "backend/structures"
+	utils "backend/utils"
 )
 
 type RMGRP struct {
@@ -118,7 +119,7 @@ func commandRmgrp(rmgrp *RMGRP) error {
 			fields[i] = strings.TrimSpace(fields[i])
 		}
 
-		isGroupLine := fields[1] == "G"                           // Verificar tipo 'G'
+		isGroupLine := fields[1] == "G" // Verificar tipo 'G'
 		isTargetGroup := strings.EqualFold(fields[2], rmgrp.name)
 		currentGID := fields[0]
 
@@ -192,6 +193,18 @@ func commandRmgrp(rmgrp *RMGRP) error {
 		return fmt.Errorf("error serializando inodo /users.txt actualizado: %w", err)
 	}
 
+	if partitionSuperblock.S_filesystem_type == 3 {
+		journalEntryData := structures.Information{
+			I_operation: utils.StringToBytes10("rmgrp"),
+			I_path:      utils.StringToBytes32(rmgrp.name),
+			I_content:   utils.StringToBytes64(""),
+		}
+		errJournal := utils.AppendToJournal(journalEntryData, partitionSuperblock, partitionPath)
+		if errJournal != nil {
+			fmt.Printf("Advertencia: Falla al escribir en journal para mkusr '%s': %v\n", rmgrp.name, errJournal)
+		}
+	}
+
 	// Serializar Superbloque
 	fmt.Println("Serializando SuperBlock después de RMGRP...")
 	err = partitionSuperblock.Serialize(partitionPath, int64(mountedPartition.Part_start))
@@ -200,5 +213,5 @@ func commandRmgrp(rmgrp *RMGRP) error {
 	}
 
 	fmt.Println("Operación RMGRP (modificar GID a 0) completada.")
-	return nil 
+	return nil
 }

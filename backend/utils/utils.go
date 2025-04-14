@@ -1,11 +1,14 @@
 package utils
 
 import (
+	"backend/structures"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func ConvertToBytes(size int, unit string) (int, error) {
@@ -72,19 +75,19 @@ func CreateParentDirs(path string) error {
 }
 
 func GetFileNames(path string) (string, string) {
-    // Limpiar el path 
-    cleanedPath := filepath.Clean(path)
+	// Limpiar el path
+	cleanedPath := filepath.Clean(path)
 
-    //Extraer componentes del path
-    dir := filepath.Dir(cleanedPath)    
-    ext := filepath.Ext(cleanedPath)     
-    baseName := strings.TrimSuffix(filepath.Base(cleanedPath), ext) 
+	//Extraer componentes del path
+	dir := filepath.Dir(cleanedPath)
+	ext := filepath.Ext(cleanedPath)
+	baseName := strings.TrimSuffix(filepath.Base(cleanedPath), ext)
 
-    // Construir el nombre del archivo .dot
-    dotFileName := filepath.Join(dir, baseName+".dot") 
-    outputImage := filepath.Join(dir, baseName+ext) // /ruta/a/reporte.png
+	// Construir el nombre del archivo .dot
+	dotFileName := filepath.Join(dir, baseName+".dot")
+	outputImage := filepath.Join(dir, baseName+ext) // /ruta/a/reporte.png
 
-    return dotFileName, outputImage
+	return dotFileName, outputImage
 }
 
 // GetParentDirectories obtiene las carpetas padres y el directorio de destino
@@ -139,8 +142,113 @@ func SplitStringIntoChunks(s string) []string {
 	return chunks
 }
 
-
-//Función para obtener el nombre del disco
-func GetDiskName(path string) (string) {
+// Función para obtener el nombre del disco
+func GetDiskName(path string) string {
 	return filepath.Base(path)
 }
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------
+// PARA EL JOURNALING
+
+func AppendToJournal(entryData structures.Information, sb *structures.SuperBlock, diskPath string) error {
+	fmt.Println("--> appendToJournal: Añadiendo entrada al journal...")
+
+	// Obtener inodo del journal (siempre inodo 2)
+	journalInodeIndex := int32(2)
+	journalInode := &structures.Inode{}
+	journalInodeOffset := int64(sb.S_inode_start + journalInodeIndex*sb.S_inode_size)
+	if err := journalInode.Deserialize(diskPath, journalInodeOffset); err != nil {
+		return fmt.Errorf("appendToJournal: error crítico leyendo inodo journal %d: %w", journalInodeIndex, err)
+	}
+	if journalInode.I_type[0] != '1' {
+		return fmt.Errorf("appendToJournal: inodo journal %d no es archivo", journalInodeIndex)
+	}
+
+	// Calcular offset de escritura (final actual del archivo journal)
+	writeOffsetInFile := journalInode.I_size // Offset lógico dentro del archivo
+	entrySize := int32(binary.Size(structures.Journal{}))
+
+	// Encontrar bloque físico y offset dentro del bloque
+	targetBlockLogicalIndex := writeOffsetInFile / sb.S_block_size
+	offsetInTargetBlock := writeOffsetInFile % sb.S_block_size
+
+	// Verificar si cabe en el bloque actual o necesita uno nuevo (simplificado: error si cruza)
+	if offsetInTargetBlock+entrySize > sb.S_block_size {
+		fmt.Printf("    Advertencia: Nueva entrada journal cruzaría límite de bloque (offset %d + size %d > blocksize %d). No soportado.\n", offsetInTargetBlock, entrySize, sb.S_block_size)
+		return fmt.Errorf("journal lleno o entrada cruza límite de bloque (no soportado)")
+	}
+
+	if targetBlockLogicalIndex >= 12 { // Asumiendo solo punteros directos para el journal por ahora
+		fmt.Printf("    Advertencia: Journal excede punteros directos (índice lógico %d). No soportado.\n", targetBlockLogicalIndex)
+		return fmt.Errorf("journal lleno (excede punteros directos)")
+	}
+
+	physicalBlockIndex := journalInode.I_block[targetBlockLogicalIndex]
+	if physicalBlockIndex == -1 {
+		// TODO?: Implementar asignación de nuevo bloque si el puntero es -1
+		fmt.Printf("    Advertencia: Journal necesita bloque lógico %d pero puntero es -1. No soportado.\n", targetBlockLogicalIndex)
+		return fmt.Errorf("journal lleno o inconsistente (puntero -1)")
+	}
+	if physicalBlockIndex < 0 || physicalBlockIndex >= sb.S_blocks_count {
+		return fmt.Errorf("appendToJournal: puntero inválido %d en journal inode block[%d]", physicalBlockIndex, targetBlockLogicalIndex)
+	}
+
+	// Calcular offset físico absoluto en el disco
+	physicalWriteOffset := int64(sb.S_block_start) + int64(physicalBlockIndex)*int64(sb.S_block_size) + int64(offsetInTargetBlock)
+
+	// Crear la entrada completa del Journal
+	journalEntry := structures.Journal{
+		J_count:   writeOffsetInFile/entrySize + 1, // Estimación simple del número de entrada
+		J_content: entryData,                       // Los datos vienen como parámetro
+	}
+	journalEntry.J_content.I_date = float32(time.Now().Unix()) // Poner fecha actual
+
+	// Escribir la entrada en el disco
+	fmt.Printf("    Escribiendo entrada journal en offset físico %d (offset lógico %d)\n", physicalWriteOffset, writeOffsetInFile)
+	file, errOpen := os.OpenFile(diskPath, os.O_WRONLY, 0644) // Abrir solo para escribir
+	if errOpen != nil {
+		return fmt.Errorf("appendToJournal: error abriendo disco para escribir journal: %w", errOpen)
+	}
+	defer file.Close()
+
+	_, errSeek := file.Seek(physicalWriteOffset, 0)
+	if errSeek != nil {
+		file.Close()
+		return fmt.Errorf("appendToJournal: error buscando offset %d: %w", physicalWriteOffset, errSeek)
+	}
+	errWrite := binary.Write(file, binary.LittleEndian, &journalEntry)
+	if errWrite != nil {
+		file.Close()
+		return fmt.Errorf("appendToJournal: error escribiendo entrada: %w", errWrite)
+	}
+
+	// Actualizar tamaño y mtime del inodo del journal
+	journalInode.I_size += entrySize
+	journalInode.I_mtime = float32(time.Now().Unix())
+	// No necesitamos atime aquí
+
+	// Serializar inodo del journal actualizado
+	fmt.Println("    Actualizando inodo del journal...")
+	errSer := journalInode.Serialize(diskPath, journalInodeOffset)
+	if errSer != nil {
+		return fmt.Errorf("appendToJournal: error crítico guardando inodo journal actualizado: %w", errSer)
+	}
+	fmt.Println("--> appendToJournal: Entrada añadida exitosamente.")
+	return nil
+}
+
+
+// Función auxiliar para copiar string a array de bytes 
+func StringToBytes(str string, size int) [ ]byte {
+	bytes := make([]byte, size)
+	copy(bytes, str)
+	return bytes
+}
+
+// Sobreescribe stringToBytes para tipos específicos si es necesario
+func StringToBytes10(str string) [10]byte { b := [10]byte{}; copy(b[:], str); return b }
+func StringToBytesN(str string, n int) []byte { buf := make([]byte, n); copy(buf, str); return buf }
+// Helper específico para [32]byte de path
+func StringToBytes32(str string) [32]byte { b := [32]byte{}; copy(b[:], str); return b }
+// Helper específico para [64]byte de content
+func StringToBytes64(str string) [64]byte { b := [64]byte{}; copy(b[:], str); return b }
