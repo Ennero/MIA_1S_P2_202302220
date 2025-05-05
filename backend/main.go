@@ -4,6 +4,7 @@ import (
 	analyzer "backend/analyzer"
 	"fmt" // Importa el paquete "fmt" para formatear e imprimir texto
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -24,6 +25,13 @@ func main() {
 	app := fiber.New()
 
 	app.Use(cors.New(cors.Config{}))
+
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"status": "ok",
+			"time":   time.Now(),
+		})
+	})
 
 	app.Post("/", func(c *fiber.Ctx) error {
 		var req CommandRequest
