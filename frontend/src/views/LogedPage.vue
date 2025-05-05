@@ -130,6 +130,8 @@ export default {
                 return;
             }
 
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
+
             // Limpiar salida anterior e indicar inicio
             this.salida = "🔄 Ejecutando comandos...\n------------------------\n";
 
@@ -149,7 +151,7 @@ export default {
                 this.salida += `> ${trimmedLine}\n`;
 
                 try {
-                    const response = await fetch('http://localhost:3001/', { // Usar await para esperar la respuesta
+                    const response = await fetch(backendURL, { // Usar await para esperar la respuesta
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -209,9 +211,11 @@ export default {
 
             const commandString = "logout"; // Comando para el backend
 
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
+
             try {
                 // Llamar al backend para que cierre sesión 
-                const response = await fetch('http://localhost:3001/', {
+                const response = await fetch(backendURL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ command: commandString }),

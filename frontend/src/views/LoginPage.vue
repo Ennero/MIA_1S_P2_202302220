@@ -87,6 +87,8 @@ export default {
       this.statusMessage = "Validando credenciales...";
       console.log('Intentando iniciar sesión con:', this.loginForm);
 
+      const backendUrl = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/'; // URL del backend
+
       if (!this.loginForm.idPartition || !this.loginForm.username || !this.loginForm.password) {
         this.errorMessage = "Todos los campos son obligatorios.";
         this.statusMessage = "";
@@ -99,7 +101,7 @@ export default {
       console.log("Enviando comando:", commandString);
 
       try {
-        const response = await fetch('http://localhost:3001/', { // URL del backend
+        const response = await fetch(backendUrl, { // URL del backend
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

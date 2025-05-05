@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+
+###############################################################################
+# 1. Etapa de compilación (Go 1.22.2 sobre Alpine)
+###############################################################################
+FROM golang:1.22.2-alpine AS builder
+WORKDIR /app
+
+# Cachear dependencias: copiar solo go.mod y go.sum
+COPY go.mod go.sum ./
+RUN go mod download                                  # Descargar módulos :contentReference[oaicite:2]{index=2}
+
+# Copiar el resto del código y compilar binario
+COPY . .
+# Aquí definimos el nombre del ejecutable: ajusta 'backend-app' o 'app' según tu preferencia
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build -ldflags="-s -w" -o backend-app .       # Binario estático y sin símbolos :contentReference[oaicite:3]{index=3}
+
+###############################################################################
+# 2. Etapa final (imagen mínima Alpine)
+###############################################################################
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates               # Solo certificados TLS :contentReference[oaicite:4]{index=4}
+
+WORKDIR /root/
+# Copiar el binario generado en la etapa builder
+COPY --from=builder /app/backend-app .
+
+# Documentar el puerto que tu app utiliza
+EXPOSE 3001
+
+# Ejecutar directamente tu binario
+ENTRYPOINT ["./backend-app"]

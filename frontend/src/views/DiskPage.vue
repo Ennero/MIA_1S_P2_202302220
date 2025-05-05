@@ -63,10 +63,11 @@ export default {
             this.isLoading = true;
             this.errorMessage = '';
             this.disks = [];
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
             console.log("Enviando comando 'disks' al backend...");
 
             try {
-                const response = await fetch('http://localhost:3001/', {
+                const response = await fetch(backendURL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ command: "disks" }),

@@ -107,6 +107,8 @@ export default {
             this.errorMessage = '';
             this.items = [];
 
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
+
             const pathToList = this.decodedInternalPath;
             // Construcción del comando:
             console.log(`Enviando comando 'content -id=${this.mountId} -ruta="${pathToList}"'`);
@@ -114,7 +116,7 @@ export default {
 
             try {
                 // Envío del comando al backend
-                const response = await fetch('http://localhost:3001/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
+                const response = await fetch(backendURL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
                 const data = await response.json();
 
                 // Manejo de respuesta (asumiendo que el backend devuelve "nombre,tipo\n...")

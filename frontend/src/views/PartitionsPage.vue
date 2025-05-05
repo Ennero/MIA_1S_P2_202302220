@@ -89,8 +89,10 @@ export default {
             const commandString = `partitions -path="${this.decodedDiskPath}"`;
             console.log(`Enviando comando: ${commandString}`);
 
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
+
             try {
-                const response = await fetch('http://localhost:3001/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
+                const response = await fetch(backendURL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: commandString }) });
                 const data = await response.json();
                 if (!response.ok || data.error) {  throw new Error(`Error obteniendo particiones: ${data.error || data.output || 'Error desconocido'}`); }
                 console.log("Respuesta Partitions:", data.output);
