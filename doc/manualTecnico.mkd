@@ -72,6 +72,7 @@ Este sistema simula la creación y gestión de discos virtuales y sistemas de ar
 El sistema sigue una arquitectura **Cliente-Servidor** desacoplada:
 
 #### Frontend
+
 - Tecnología: Desarrollado con Vue.js (Framework progresivo de JavaScript).
 - Interfaz: Una aplicación de página única (SPA) que presenta una interfaz similar a una consola.
   - Área de texto para ingresar comandos manualmente o cargar desde archivo .mias.
@@ -970,7 +971,8 @@ export default {
 
 
 
-El frontend está desarrollado con el framework Vue.js y se comunica con el backend mediante una API REST y JSON.
+El frontend está desarrollado con el framework Vue.js y se comunica con el backend mediante una API REST y JSON. El [vínculo](http://yosoyennerofrontend.s3-website-us-east-1.amazonaws.com/) de acceso a este es el siguiente:
+http://yosoyennerofrontend.s3-website-us-east-1.amazonaws.com/
 
 
 #### Backend

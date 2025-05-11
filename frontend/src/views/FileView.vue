@@ -64,6 +64,8 @@ export default {
     methods: {
         async fetchFileContent() {
 
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
+
             if (!this.mountId || !this.filePathEncoded) {
                 this.errorMessage = "Error interno: Falta ID de montaje o path del archivo.";
                 return;
@@ -83,7 +85,7 @@ export default {
             const commandString = `cat -id=${this.mountId} -path="${this.decodedFilePath}"`;
 
             try {
-                const response = await fetch('http://localhost:3001/', { // URL Backend
+                const response = await fetch(backendURL, { // URL Backend
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ command: commandString }),

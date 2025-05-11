@@ -120,6 +120,7 @@ export default {
             reader.readAsText(file);
         },
         async ejecutar() { // Marcar la función como async
+            const backendURL = process.env.VUE_APP_BACKEND_URL || 'http://localhost:3001/';
             if (!this.entrada.trim()) {
                 this.salida = "⚠️ No hay comandos para ejecutar";
                 return;
@@ -144,7 +145,7 @@ export default {
                 this.salida += `> ${trimmedLine}\n`;
 
                 try {
-                    const response = await fetch('http://localhost:3001/', { // Usar await para esperar la respuesta
+                    const response = await fetch(backendURL, { // Usar await para esperar la respuesta
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
